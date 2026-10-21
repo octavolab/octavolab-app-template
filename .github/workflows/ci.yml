@@ -28,7 +28,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm db:generate && pnpm db:migrate
+      # Workspace packages must be built (dist + .d.ts) before apps/api typechecks against them.
+      - run: pnpm db:generate && pnpm --filter "./packages/**" build && pnpm db:migrate
       - name: Migrations replay on an empty PostgreSQL (PGlite) in order
         run: pnpm --filter @octavolab/db validate:sql
       - run: pnpm lint && pnpm typecheck
