@@ -1,6 +1,50 @@
 # Changelog
 All notable changes to this project are documented here (Keep a Changelog, semver).
 
+## [0.7.0] - 2026-10-22
+Independent audit (43/50): the three code gaps closed. "Unit" means it runs locally and in CI against the in-memory Prisma
+stand-in; "PG (CI)" means a PostgreSQL integration test that runs only in CI; "real run" means only a real CI run, provider
+sandbox or Lightsail deploy can confirm it.
+
+### Added
+- Customer self-service checkout (role `customer`): `POST /api/v1/me/orders` (SKUs and quantities only, priced from the tenant
+  catalog), `GET /api/v1/me/orders` (cursor pagination), `GET /api/v1/me/orders/:id`, `POST /api/v1/me/orders/:id/checkout`
+  (same `startCheckout`, state machine and provider key `checkout:<orderId>` as staff). Owner filter on every read and on
+  checkout (`Order.customerUserId`); Idempotency-Key scoped to tenant and customer and bound to the body (unit, including IDOR
+  tests; PG (CI)).
+- Tenant price list: `Product` model, `GET /api/v1/products`, `PUT /api/v1/products/:sku` (owner, admin; audited) (unit).
+- Resend messaging adapter (`MESSAGING_PROVIDER=resend` in sandbox or live mode; fake stays the default): fetch with a 10 s
+  timeout, retries left to the outbox, provider idempotency key `outbox:<eventId>`, classified and sanitized errors
+  (`MessagingError`), sandbox restricted to Resend's test inbox; `RESEND_API_KEY` and `MESSAGING_FROM` validated at start-up
+  only when needed (unit with a mocked fetch; real send: real run). See `docs/integrations/resend.md`.
+- TOTP two-factor authentication (RFC 6238) for owner, admin and operations: enroll, activate, second login step
+  (`POST /api/v1/auth/login/mfa`), disable, recovery-code regeneration, owner reset of another user's 2FA
+  (`POST /api/v1/users/:id/2fa/reset`). Secrets encrypted with AES-256-GCM (`TOTP_ENC_KEY`), 10 single-use recovery codes
+  stored as keyed HMAC, single-use codes, rate limits, audit entries, `REQUIRE_OWNER_2FA` (unit; RFC vectors; PG (CI) for the
+  concurrent single-use updates).
+- Migrations `20261021130000_product_catalog_customer_orders` and `20261021130100_user_totp_2fa` (expand only, each with
+  ROLLBACK.md), replayed in order on PGlite (`validate:sql`, 7 migrations).
+- Integration test `apps/api/test/integration/self-service-mfa.int.test.ts` (PG (CI)).
+
+### Changed
+- Outbox worker: handlers receive the event id; an error with `retryable === false` is dead-lettered at once.
+- `requireAuth` exposes the account (`req.account`) and enforces forced enrollment for owners when `REQUIRE_OWNER_2FA=true`.
+- `GET /api/v1/auth/me` adds `mfaEnabled` and `mfaEnrollmentRequired`. `POST /api/v1/auth/login` answers
+  `{ mfaRequired: true }` (no session) for accounts with 2FA once the password is correct.
+- API tests share one in-memory Prisma stand-in (`apps/api/src/test-support/prisma-stand-in.ts`) whose reads return copies,
+  like Prisma.
+- Coverage ratchet raised (api: lines 95, branches 85, functions 93; 100 % lines on TOTP and secret-box code).
+- `infra/lightsail.json` sets `REQUIRE_OWNER_2FA=true` for the app (and, through deploy.sh, the worker).
+
+### Upgrade notes
+- Before deploying 0.7.0 to staging or production, add `TOTP_ENC_KEY` (`openssl rand -base64 32`) to the Lightsail environment:
+  with `REQUIRE_OWNER_2FA=true` the API refuses to start without it. Owners must enroll at their next sign-in.
+- Seed adds two demo products; customers can only order SKUs that exist and are active in their tenant.
+
+### Tests
+- 67 -> 129 unit and API tests (`npx vitest run`); api coverage 95.5/82.4/89.1 -> 97.7/87.6/96.0 (lines/branches/functions);
+  integration tests 10 -> 15 (CI only).
+
 ## [0.6.0] - 2026-10-21
 Independent audit (34/50): every defect below fixed. "Unit" means it runs locally and in CI against the in-memory Prisma
 stand-in; "PG (CI)" means a PostgreSQL integration test that runs only in CI; "real run" means only a real CI run or
