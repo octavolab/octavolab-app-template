@@ -58,6 +58,7 @@ model Outbox {
   attempts    Int       @default(0)
   lastError   String?
   deliveredAt DateTime?
+  deadLetteredAt DateTime? // set when attempts reach the maximum; the worker stops retrying and logs outbox_dead_letter
   lockedUntil DateTime?
   createdAt   DateTime  @default(now())
   @@index([deliveredAt, createdAt])

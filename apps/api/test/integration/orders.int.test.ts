@@ -44,8 +44,14 @@ describe.runIf(run)("orders against PostgreSQL", () => {
   });
 
   it("outbox rows are claimed by exactly one worker", async () => {
-    const claim = () => prisma.$queryRaw`UPDATE "Outbox" SET "lockedUntil" = now() + interval '60 seconds' WHERE id IN (SELECT id FROM "Outbox" WHERE "deliveredAt" IS NULL AND attempts < 8 AND ("lockedUntil" IS NULL OR "lockedUntil" < now()) ORDER BY "createdAt" LIMIT 50 FOR UPDATE SKIP LOCKED) RETURNING id`;
-    const [r1, r2] = await Promise.all([claim(), claim()]);
+    const { claimBatch } = await import("../../src/workers/outbox.worker.js");
+    const [r1, r2] = await Promise.all([claimBatch(prisma), claimBatch(prisma)]);
     expect((r1 as unknown[]).length + (r2 as unknown[]).length).toBe(1);
+  });
+
+  it("dead-lettered rows are never claimed again", async () => {
+    const { claimBatch } = await import("../../src/workers/outbox.worker.js");
+    await prisma.outbox.updateMany({ data: { lockedUntil: null, deadLetteredAt: new Date(), attempts: 8 } });
+    expect((await claimBatch(prisma)).length).toBe(0);
   });
 });

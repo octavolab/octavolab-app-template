@@ -1,21 +1,72 @@
 import { prisma } from "@octavolab/db";
-import { getMessaging } from "@octavolab/integrations";
+import { pino } from "pino";
+import { getMessaging, type MessagingProvider } from "@octavolab/integrations";
+import { env } from "../config/env.js";
 
-/** Outbox dispatcher: at-least-once delivery, up to 8 attempts with exponential backoff (5 s × 2^attempts) and row claiming with FOR UPDATE SKIP LOCKED so two workers never send the same event. Run as the `worker` container. */
-export async function dispatchOnce() {
-  const events = await prisma.$queryRaw<{ id: string; type: string; payload: unknown; attempts: number }[]>`UPDATE "Outbox" SET "lockedUntil" = now() + interval '60 seconds' WHERE id IN (SELECT id FROM "Outbox" WHERE "deliveredAt" IS NULL AND attempts < 8 AND ("lockedUntil" IS NULL OR "lockedUntil" < now()) ORDER BY "createdAt" LIMIT 50 FOR UPDATE SKIP LOCKED) RETURNING id, type, payload, attempts`;
+/**
+ * Outbox dispatcher: at-least-once delivery. Rows are claimed with FOR UPDATE SKIP LOCKED plus a 60 s lease so two
+ * workers never send the same event; failures back off exponentially (5 s x 2^attempts). Each event type has an
+ * explicit handler; an unknown type is a failure (lastError set, never marked delivered). After MAX_ATTEMPTS the event
+ * is dead-lettered (deadLetteredAt) and an `outbox_dead_letter` error line is logged for alerting.
+ * Runs as the `worker` container (infra/lightsail.json).
+ */
+export const MAX_ATTEMPTS = 8;
+
+export type OutboxEvent = { id: string; type: string; payload: unknown; attempts: number };
+export type HandlerDeps = { messaging: () => MessagingProvider; opsEmail: string };
+export type Handler = (payload: Record<string, unknown>, deps: HandlerDeps) => Promise<void>;
+type Log = { info(o: object, msg: string): void; warn(o: object, msg: string): void; error(o: object, msg: string): void };
+
+const notifyOps = (template: string): Handler => async (payload, d) => {
+  await d.messaging().send({ to: d.opsEmail, template, data: payload });
+};
+
+export const handlers: Readonly<Record<string, Handler>> = {
+  "order.created": notifyOps("order_created"),
+  "order.paid": notifyOps("order_paid"),
+};
+
+type Db = Pick<typeof prisma, "$queryRaw" | "outbox">;
+export type WorkerDeps = HandlerDeps & { db: Db; log: Log; handlers: Readonly<Record<string, Handler>>; now: () => Date };
+
+export function defaultDeps(): WorkerDeps {
+  return { db: prisma, messaging: getMessaging, opsEmail: env.OPS_EMAIL, log: pino({ name: "outbox-worker" }), handlers, now: () => new Date() };
+}
+
+/** Claims up to 50 pending events (not delivered, not dead-lettered, lease expired) for this worker. */
+export function claimBatch(db: Pick<typeof prisma, "$queryRaw">) {
+  return db.$queryRaw<OutboxEvent[]>`UPDATE "Outbox" SET "lockedUntil" = now() + interval '60 seconds' WHERE id IN (SELECT id FROM "Outbox" WHERE "deliveredAt" IS NULL AND "deadLetteredAt" IS NULL AND attempts < ${MAX_ATTEMPTS} AND ("lockedUntil" IS NULL OR "lockedUntil" < now()) ORDER BY "createdAt" LIMIT 50 FOR UPDATE SKIP LOCKED) RETURNING id, type, payload, attempts`;
+}
+
+export async function dispatchOnce(deps: WorkerDeps = defaultDeps()) {
+  const result = { delivered: 0, failed: 0, deadLettered: 0 };
+  const events = await claimBatch(deps.db);
   for (const ev of events) {
     try {
-      if (ev.type === "order.created") {
-        await getMessaging().send({ to: "ops@example.com", template: "order_created", data: ev.payload as Record<string, unknown> });
-      }
-      await prisma.outbox.update({ where: { id: ev.id }, data: { deliveredAt: new Date(), attempts: { increment: 1 } } });
+      const handler = deps.handlers[ev.type];
+      if (!handler) throw new Error(`no handler for outbox event type "${ev.type}"`);
+      await handler((ev.payload ?? {}) as Record<string, unknown>, deps);
+      await deps.db.outbox.update({ where: { id: ev.id }, data: { deliveredAt: deps.now(), attempts: { increment: 1 }, lastError: null } });
+      result.delivered++;
     } catch (err) {
-      await prisma.outbox.update({ where: { id: ev.id }, data: { attempts: { increment: 1 }, lastError: String(err), lockedUntil: new Date(Date.now() + 5000 * 2 ** ev.attempts) } });
+      const attempts = ev.attempts + 1;
+      const lastError = String(err instanceof Error ? err.message : err).slice(0, 1000);
+      if (attempts >= MAX_ATTEMPTS) {
+        await deps.db.outbox.update({ where: { id: ev.id }, data: { attempts: { increment: 1 }, lastError, deadLetteredAt: deps.now(), lockedUntil: null } });
+        deps.log.error({ event: "outbox_dead_letter", metric: "outbox_dead_letter_total", outboxId: ev.id, type: ev.type, attempts, lastError }, "outbox event dead-lettered");
+        result.deadLettered++;
+      } else {
+        await deps.db.outbox.update({ where: { id: ev.id }, data: { attempts: { increment: 1 }, lastError, lockedUntil: new Date(deps.now().getTime() + 5000 * 2 ** ev.attempts) } });
+        deps.log.warn({ event: "outbox_retry", outboxId: ev.id, type: ev.type, attempts, lastError }, "outbox event failed; will retry");
+        result.failed++;
+      }
     }
   }
+  return result;
 }
 
 if (process.argv[1]?.endsWith("outbox.worker.js")) {
-  const loop = async () => { await dispatchOnce().catch((e) => console.error(e)); setTimeout(loop, 2000); }; void loop();
+  const deps = defaultDeps();
+  const loop = async () => { await dispatchOnce(deps).catch((e) => deps.log.error({ event: "outbox_loop_error", error: String(e) }, "outbox loop error")); setTimeout(loop, 2000); };
+  void loop();
 }
