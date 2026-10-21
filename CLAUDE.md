@@ -1,6 +1,6 @@
 # CLAUDE.md · instrucciones permanentes para cualquier agente o developer
 
-kit: octavolab-core (versión vigente, hoy 6.8.4) · módulos: S (software dinámico), C (ingeniería de producción), L (aprendizaje)
+kit: octavolab-core (versión vigente, hoy 6.9) · módulos: S (software dinámico), C (ingeniería de producción), L (aprendizaje)
 
 ## Lo que nunca se toca
 - Secretos: nunca en el repositorio ni en el chat. `.env` está ignorado. Producción usa variables de entorno de Lightsail.
