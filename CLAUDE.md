@@ -1,6 +1,6 @@
 # CLAUDE.md · instrucciones permanentes para cualquier agente o developer
 
-kit: octavolab-core@6.4.0 · módulos: S (software dinámico), C (ingeniería de producción), L (aprendizaje)
+kit: octavolab-core (versión vigente, hoy 6.8.1) · módulos: S (software dinámico), C (ingeniería de producción), L (aprendizaje)
 
 ## Lo que nunca se toca
 - Secretos: nunca en el repositorio ni en el chat. `.env` está ignorado. Producción usa variables de entorno de Lightsail.
@@ -28,7 +28,7 @@ kit: octavolab-core@6.4.0 · módulos: S (software dinámico), C (ingeniería de
 - `pnpm dev` · `pnpm test` · `pnpm e2e` · `pnpm check` · `pnpm db:migrate` · `pnpm db:seed` · `pnpm build`
 - Despliegue: `infra/deploy.sh staging|prod` (prod solo con aprobación). Humo: `infra/smoke.sh <url>`.
 
-## Aprobaciones de Jaime (N07), agrupadas en un solo mensaje por sesión
+## Aprobaciones de Jaime (N07): se agrupan cuando coinciden en el tiempo; lo que surge después se pide en su momento; nada irreversible sin aprobación
 Repositorio y accesos · cuentas en proveedores · llaves de producción · primer cobro o envío real · despliegue a producción · costos recurrentes · comandos destructivos.
 
 ## Aprendizaje (Módulo L)

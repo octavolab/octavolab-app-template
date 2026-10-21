@@ -6,7 +6,7 @@ Historia: <id>. Criterio de aceptación: <texto>.
 Capturas:
 
 ## Migraciones
-- [ ] Ninguna · [ ] Reversible (`migrate down` probado)
+- [ ] Ninguna · [ ] Compatible hacia atrás (expandir y contraer) con plan de reversión escrito; Prisma no tiene `migrate down
 
 ## Riesgos y cómo revertir
 

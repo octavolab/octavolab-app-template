@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-// Unit test with a mocked prisma: integration tests run against a Docker database in CI (see .github/workflows/ci.yml).
+// Unit test with a mocked prisma. There is no DB integration test yet: add one against the CI Postgres service once packages/db/prisma/migrations exists.
 vi.mock("@octavolab/db", () => {
   const store: Record<string, unknown> = {};
   const tx = {

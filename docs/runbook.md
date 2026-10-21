@@ -1,6 +1,6 @@
 # Runbook
 ## Deploy
-staging: merge to main → CI deploys. prod: `git tag vX.Y.Z && git push --tags` → approve in GitHub environment → Jaime approves in chat.
+First deploy of a new service: set DATABASE_URL, SESSION_SECRET, APP_URL, REDIS_URL and provider keys once with "aws lightsail create-container-service-deployment" from a local file outside the repo (deploy.sh only carries over the ACTIVE deployment's environment, and without these the API exits at boot). Then: staging: merge to main → CI deploys. prod: `git tag vX.Y.Z && git push --tags` → approve in GitHub environment → Jaime approves in chat.
 ## Rollback
 `infra/rollback.sh <service> <version>`; verify with `infra/smoke.sh`.
 ## Backups and restore

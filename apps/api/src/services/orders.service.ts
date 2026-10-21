@@ -1,5 +1,5 @@
 import { prisma, Prisma } from "@octavolab/db";
-import { conflict } from "../lib/errors.js";
+import { AppError, conflict } from "../lib/errors.js";
 
 type Input = { customerEmail: string; currency: string; items: { sku: string; qty: number; unitAmount: number }[] };
 
@@ -12,6 +12,7 @@ export async function createOrder(input: Input, idempotencyKey: string) {
   if (existing) return JSON.parse(existing.response);
 
   const total = input.items.reduce((s, i) => s + i.qty * i.unitAmount, 0);
+  if (!Number.isSafeInteger(total) || total > 2_147_483_647) throw new AppError("AMOUNT_RANGE", "total exceeds the 32-bit minor-unit column; see ADR to move totalAmount to BigInt", 422);
   try {
     return await prisma.$transaction(async (tx) => {
       const order = await tx.order.create({

@@ -1,7 +1,7 @@
 {
   "name": "octavolab-app-template",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "packageManager": "pnpm@9.12.0",
   "scripts": {
     "dev": "pnpm --filter \"./packages/**\" build && concurrently -n api,web \"pnpm --filter api dev\" \"pnpm --filter web dev\"",
@@ -11,7 +11,7 @@
     "test": "pnpm -r test",
     "e2e": "playwright test",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm e2e && pnpm security",
-    "security": "gitleaks detect --no-git -v || true; semgrep --config p/owasp-top-ten --error . || true",
+    "security": "gitleaks detect --no-git -v && semgrep --config p/owasp-top-ten --error .",
     "db:migrate": "pnpm --filter @octavolab/db migrate",
     "db:seed": "pnpm --filter @octavolab/db seed",
     "db:generate": "pnpm --filter @octavolab/db generate",

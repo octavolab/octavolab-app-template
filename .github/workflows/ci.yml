@@ -29,8 +29,8 @@ jobs:
       - run: pnpm db:generate && pnpm db:migrate
       - run: pnpm lint && pnpm typecheck
       - run: pnpm test
-      - name: Migrations are reversible
-        run: pnpm --filter @octavolab/db exec prisma migrate status
+      - name: Migrations exist and are applied (Prisma has no down migrations; rollback plan per migration in its folder)
+        run: test -n "$(ls packages/db/prisma/migrations 2>/dev/null)" && pnpm --filter @octavolab/db exec prisma migrate status
       - run: pnpm build
       - name: E2E (390/768/1024/1440 + axe)
         run: |

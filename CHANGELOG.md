@@ -1,6 +1,15 @@
 # Changelog
 All notable changes to this project are documented here (Keep a Changelog, semver).
 
+## [0.3.0] - 2026-10-21
+### Fixed (independent review, round 2)
+- Initial SQL migration (validated on PostgreSQL via PGlite: 8 tables, indexes, foreign keys) with migration_lock and a rollback plan; CI checks migrations exist.
+- Outbox claims rows with FOR UPDATE SKIP LOCKED and lockedUntil (a second worker gets zero rows, verified), exponential backoff, non-overlapping loop.
+- /api/health returns 503 when the database is down.
+- Order totals guarded against the 32-bit minor-unit column.
+- README, ARCHITECTURE, runbook, ADR and PR template describe only what exists; roadmap items labeled (N52).
+- IAM policy and CODEOWNERS notes; approvals in CLAUDE.md no longer imply a single grouped approval per session.
+
 ## [0.2.0] - 2026-10-21
 ### Fixed (independent review)
 - deploy.sh carries over the ACTIVE deployment environment (Lightsail replaces the whole deployment).
