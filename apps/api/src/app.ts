@@ -15,6 +15,8 @@ import { orderRoutes } from "./routes/orders.js";
 import { authRoutes } from "./routes/auth.js";
 import { webhookRoutes } from "./routes/webhooks.js";
 import { userRoutes } from "./routes/users.js";
+import { meRoutes } from "./routes/me.js";
+import { productRoutes } from "./routes/products.js";
 import { AppError } from "./lib/errors.js";
 
 /** A client-sent X-Request-Id is reused only if it is short and safe to log; anything else gets a fresh UUID. */
@@ -64,6 +66,8 @@ export async function buildApp(opts: { logStream?: { write(line: string): void }
   await app.register(authRoutes, { prefix: "/api/v1" });
   await app.register(orderRoutes, { prefix: "/api/v1" });
   await app.register(userRoutes, { prefix: "/api/v1" });
+  await app.register(meRoutes, { prefix: "/api/v1" });
+  await app.register(productRoutes, { prefix: "/api/v1" });
   await app.register(webhookRoutes, { prefix: "/api/v1" });
   // OpenAPI 3 document generated from the zod route schemas; the committed copy is docs/openapi.json (kept in sync by a test).
   if (env.NODE_ENV !== "production") app.get("/api/openapi.json", { schema: { hide: true } }, async () => app.swagger());

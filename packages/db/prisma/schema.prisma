@@ -10,6 +10,7 @@ model Tenant {
   createdAt DateTime @default(now())
   users     User[]
   orders    Order[]
+  products  Product[]
 }
 
 model User {
@@ -23,7 +24,23 @@ model User {
   // Incremented on logout and role change; session tokens carry it (`sv`) and stop working when it changes.
   sessionVersion Int    @default(0)
   createdAt    DateTime @default(now())
+  orders       Order[]  @relation("CustomerOrders")
   @@index([tenantId])
+}
+
+/// Tenant price list. Customer self-service orders are priced from here, never from the request body.
+model Product {
+  id         String   @id @default(cuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  sku        String
+  name       String
+  unitAmount Int      // minor units
+  currency   String   // ISO 4217
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  @@unique([tenantId, sku])
 }
 
 model Order {
@@ -31,6 +48,9 @@ model Order {
   tenantId      String      // required: there is no shared "null tenant"
   tenant        Tenant      @relation(fields: [tenantId], references: [id])
   customerEmail String
+  // Set when a customer created the order for themself (POST /me/orders); customers can only read orders where this is their id.
+  customerUserId String?
+  customer      User?       @relation("CustomerOrders", fields: [customerUserId], references: [id], onDelete: SetNull)
   currency      String
   totalAmount   Int         // minor units
   status        OrderStatus @default(draft)
@@ -40,6 +60,7 @@ model Order {
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   @@index([tenantId, status])
+  @@index([tenantId, customerUserId, createdAt])
 }
 
 model OrderItem {

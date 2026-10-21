@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import argon2 from "argon2";
+import { db } from "../test-support/prisma-stand-in.js";
 
 // Environment must be set before the app (and its env schema) is imported.
 Object.assign(process.env, {
@@ -15,52 +16,8 @@ Object.assign(process.env, {
 // test/integration/rate-limit-redis.int.test.ts against the CI Redis service.
 delete process.env.REDIS_URL;
 
-// In-memory stand-in for Prisma: enough behaviour to exercise auth, tenancy, idempotency and webhook dedupe end to end.
-const db = vi.hoisted(() => ({ users: [] as any[], orders: [] as any[], keys: new Map<string, { response: string; requestHash: string }>(), events: new Set<string>(), audit: [] as any[], outbox: [] as any[], failNextOutbox: false }));
-vi.mock("@octavolab/db", () => {
-  class PrismaClientKnownRequestError extends Error { constructor(public code: string) { super(code); } }
-  const prisma: any = {
-    user: {
-      findUnique: async ({ where }: any) => db.users.find((u) => (where.email ? u.email === where.email : u.id === where.id)) ?? null,
-      updateMany: async ({ where, data }: any) => {
-        const u = db.users.find((x) => x.id === where.id && (where.tenantId === undefined || x.tenantId === where.tenantId));
-        if (!u) return { count: 0 };
-        if (data.role) u.role = data.role;
-        if (data.sessionVersion?.increment) u.sessionVersion += data.sessionVersion.increment;
-        return { count: 1 };
-      },
-    },
-    order: {
-      create: async ({ data }: any) => { const o = { id: `o${db.orders.length + 1}`, version: 0, ...data, items: data.items.create }; db.orders.push(o); return o; },
-      findFirst: async ({ where }: any) => db.orders.find((o) => o.id === where.id && o.tenantId === where.tenantId) ?? null,
-      findUnique: async ({ where }: any) => db.orders.find((o) => o.id === where.id) ?? null,
-      updateMany: async ({ where, data }: any) => {
-        const o = db.orders.find((x) => x.id === where.id && x.version === where.version && where.status.in.includes(x.status));
-        if (!o) return { count: 0 };
-        if (data.paymentIntentId) { if (db.orders.some((x) => x.paymentIntentId === data.paymentIntentId)) throw new PrismaClientKnownRequestError("P2002"); o.paymentIntentId = data.paymentIntentId; }
-        o.status = data.status; o.version += 1; return { count: 1 };
-      },
-    },
-    idempotencyKey: {
-      findUnique: async ({ where }: any) => db.keys.get(where.key) ?? null,
-      create: async ({ data }: any) => { db.keys.set(data.key, { response: data.response, requestHash: data.requestHash }); return data; },
-    },
-    auditLog: { create: async ({ data }: any) => { db.audit.push(data); return data; } },
-    outbox: { create: async ({ data }: any) => { if (db.failNextOutbox) { db.failNextOutbox = false; throw new Error("injected failure"); } db.outbox.push(data); return data; } },
-    webhookEvent: { create: async ({ data }: any) => { if (db.events.has(data.id)) throw new PrismaClientKnownRequestError("P2002"); db.events.add(data.id); return data; } },
-    // Snapshot and restore on error: enough to model rollback of events, orders, audit and outbox.
-    $transaction: async (fn: any) => {
-      const snap = { events: new Set(db.events), orders: db.orders.map((o) => ({ ...o })), audit: [...db.audit], outbox: [...db.outbox] };
-      try { return await fn(prisma); } catch (e) {
-        db.events = snap.events; db.audit = snap.audit; db.outbox = snap.outbox;
-        snap.orders.forEach((s, i) => Object.assign(db.orders[i], s));
-        throw e;
-      }
-    },
-    $queryRaw: async () => [{ 1: 1 }],
-  };
-  return { prisma, Prisma: { PrismaClientKnownRequestError } };
-});
+// In-memory stand-in for Prisma (shared with the other API test files): auth, tenancy, idempotency, webhook dedupe end to end.
+vi.mock("@octavolab/db", async () => (await import("../test-support/prisma-stand-in.js")).dbModule);
 
 // Stripe API stand-in (sandbox mode uses the real StripeGateway): honours Idempotency-Key like Stripe does.
 const stripe = vi.hoisted(() => ({ calls: [] as { method: string; url: string; body: URLSearchParams | null; key: string | undefined }[], byKey: new Map<string, string>() }));
@@ -386,6 +343,8 @@ describe("OpenAPI", () => {
     const spec = res.json();
     expect(spec.paths["/api/v1/orders/{id}/checkout"].post.summary).toMatch(/pending_payment/);
     expect(spec.paths["/api/v1/users/{id}/role"].patch).toBeDefined();
+    expect(spec.paths["/api/v1/me/orders/{id}/checkout"].post.summary).toMatch(/pending_payment/);
+    expect(spec.paths["/api/v1/me/orders"].post.requestBody.content["application/json"].schema.additionalProperties).toBe(false);
     const file = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../docs/openapi.json");
     const text = `${JSON.stringify(spec, null, 2)}\n`;
     if (process.env.UPDATE_OPENAPI === "1") writeFileSync(file, text);

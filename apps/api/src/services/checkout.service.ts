@@ -8,6 +8,9 @@ import { requestHash } from "../lib/canonical.js";
 import { AppError, conflict, notFound } from "../lib/errors.js";
 import type { Ctx } from "./orders.service.js";
 
+/** Staff act for the whole tenant; a customer (`customerUserId` set) may only check out orders they own. */
+export type CheckoutCtx = Ctx & { customerUserId?: string | undefined };
+
 export type CheckoutResult = { orderId: string; status: "pending_payment"; paymentIntentId: string; amount: number; currency: string; clientSecret?: string | undefined };
 
 /**
@@ -21,15 +24,21 @@ export type CheckoutResult = { orderId: string; status: "pending_payment"; payme
  * Idempotent three ways: the same Idempotency-Key and body replays the stored result (422 with another body); a new
  * key for an order already in pending_payment resumes the existing intent; any other state returns 409.
  * The client secret is never stored by us: it is re-read from the provider when a checkout is replayed or resumed.
+ *
+ * Customer self-service (`ctx.customerUserId`): the order is looked up by tenant AND owner, so another customer's order is
+ * a 404, and the Idempotency-Key is scoped to the customer, so a replay can only return the caller's own stored result.
+ * Everything else (state machine, provider key `checkout:<orderId>`, transaction) is the same code path as staff checkout.
  */
-export async function startCheckout(orderId: string, idempotencyKey: string, ctx: Ctx, payments: PaymentGateway = getPayments()): Promise<CheckoutResult> {
+export async function startCheckout(orderId: string, idempotencyKey: string, ctx: CheckoutCtx, payments: PaymentGateway = getPayments()): Promise<CheckoutResult> {
   if (!ctx.tenantId) throw new AppError("TENANT_REQUIRED", "This action requires a tenant", 403);
-  const key = idempotencyRepo.scopedKey(ctx.tenantId, idempotencyKey);
+  const key = idempotencyRepo.scopedKey(ctx.tenantId, idempotencyKey, ctx.customerUserId);
   const hash = requestHash("orders.checkout", { orderId });
   const replay = await idempotencyRepo.find(key, hash);
   if (replay) return resume(JSON.parse(replay.response) as CheckoutResult, payments);
 
-  const order = await ordersRepo.byIdForTenant(orderId, ctx.tenantId);
+  const order = ctx.customerUserId
+    ? await ordersRepo.byIdForCustomer(orderId, ctx.tenantId, ctx.customerUserId)
+    : await ordersRepo.byIdForTenant(orderId, ctx.tenantId);
   if (!order) throw notFound("Order");
   if (order.status === "pending_payment" && order.paymentIntentId) {
     return resume({ orderId: order.id, status: "pending_payment", paymentIntentId: order.paymentIntentId, amount: order.totalAmount, currency: order.currency }, payments);

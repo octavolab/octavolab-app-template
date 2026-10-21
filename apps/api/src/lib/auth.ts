@@ -6,7 +6,11 @@ import { AppError } from "./errors.js";
 import { usersRepo } from "../repositories/users.repository.js";
 
 declare module "fastify" {
-  interface FastifyRequest { user?: Session }
+  interface FastifyRequest {
+    user?: Session;
+    /** The account re-read from the database by requireAuth (never from the token). */
+    account?: { id: string; email: string };
+  }
 }
 
 export const SESSION_COOKIE = "sid";
@@ -46,6 +50,7 @@ export function requireAuth(roles?: Session["role"][]) {
       reply.setCookie(SESSION_COOKIE, issueSession({ uid: s.uid, role: s.role, tid: s.tid, sv: s.sv, auth: s.auth }, env.SESSION_SECRET, env.SESSION_TTL_SECONDS), cookieOptions());
     }
     req.user = s;
+    req.account = { id: user.id, email: user.email };
   };
 }
 

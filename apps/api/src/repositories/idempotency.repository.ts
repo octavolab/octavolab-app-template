@@ -4,8 +4,13 @@ import { AppError } from "../lib/errors.js";
 type Tx = Prisma.TransactionClient;
 
 export const idempotencyRepo = {
-  /** Keys are scoped by tenant so one tenant can never replay (or read) another tenant's response. */
-  scopedKey: (tenantId: string, clientKey: string) => `${tenantId}:${clientKey}`,
+  /**
+   * Keys are scoped by tenant so one tenant can never replay (or read) another tenant's response. Customer self-service
+   * keys are also scoped by the customer (`<tenant>:u:<userId>:<key>`): two customers of one tenant who pick the same key
+   * neither collide nor see each other's stored response. Staff keys keep the 0.6.0 format.
+   */
+  scopedKey: (tenantId: string, clientKey: string, customerUserId?: string) =>
+    customerUserId ? `${tenantId}:u:${customerUserId}:${clientKey}` : `${tenantId}:${clientKey}`,
 
   /**
    * Returns the stored record when the key was already used for the same request, null when the key is new, and throws
