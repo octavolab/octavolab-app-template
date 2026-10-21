@@ -1,0 +1,2 @@
+# Rollback plan for 20261021120000_user_session_version
+Expand only: adds a column with a default, so the previous app version keeps working against the migrated schema (it ignores the column). Rolling back the app is enough; the column can stay. If it must go: `ALTER TABLE "User" DROP COLUMN "sessionVersion";` after the previous version is live (every session token issued by this version then needs a new sign-in, which is the intended effect).

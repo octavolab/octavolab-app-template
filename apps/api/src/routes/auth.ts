@@ -4,8 +4,9 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import argon2 from "argon2";
 import { randomUUID } from "node:crypto";
 import { usersRepo } from "../repositories/users.repository.js";
-import { issueSession } from "../lib/session.js";
-import { SESSION_COOKIE, cookieOptions, requireAuth } from "../lib/auth.js";
+import { auditRepo } from "../repositories/audit.repository.js";
+import { issueSession, verifySession } from "../lib/session.js";
+import { SESSION_COOKIE, cookieOptions, emailFingerprint, requireAuth } from "../lib/auth.js";
 import { AppError } from "../lib/errors.js";
 import { env } from "../config/env.js";
 
@@ -13,25 +14,41 @@ import { env } from "../config/env.js";
 // so the response time does not reveal which emails are registered.
 const DUMMY_HASH = argon2.hash(randomUUID());
 
+/** Login attempts are counted per account AND client IP: an attacker cannot lock a victim out from another IP. */
+export const loginRateKey = (email: string | undefined, ip: string) => `login:${String(email ?? "").trim().toLowerCase()}:${ip}`;
+
 export async function authRoutes(app: FastifyInstance) {
   const r = app.withTypeProvider<ZodTypeProvider>();
 
   r.post("/auth/login", {
-    // 5 attempts per minute per account from any IP (Módulo C 6.2: limit per user): rotating IPs or X-Forwarded-For does not reset it; the global limit per IP still applies.
-    config: { rateLimit: { max: 5, timeWindow: "1 minute", hook: "preHandler", keyGenerator: (req) => `login:${String((req.body as { email?: string } | undefined)?.email ?? "").toLowerCase()}` } },
-    schema: { body: z.object({ email: z.string().email().max(254), password: z.string().min(8).max(200) }) },
+    // 5 attempts per minute per (email, IP) pair; the global limit per IP (100/min) still applies on top.
+    config: { rateLimit: { max: 5, timeWindow: "1 minute", hook: "preHandler", keyGenerator: (req) => loginRateKey((req.body as { email?: string } | undefined)?.email, req.ip) } },
+    schema: { tags: ["auth"], body: z.object({ email: z.string().email().max(254), password: z.string().min(8).max(200) }) },
   }, async (req, reply) => {
     const user = await usersRepo.byEmail(req.body.email);
     const ok = await argon2.verify(user?.passwordHash ?? (await DUMMY_HASH), req.body.password).catch(() => false);
-    if (!user || !ok) throw new AppError("INVALID_CREDENTIALS", "Email or password is incorrect", 401);
-    reply.setCookie(SESSION_COOKIE, issueSession({ uid: user.id, role: user.role, tid: user.tenantId }, env.SESSION_SECRET, env.SESSION_TTL_SECONDS), cookieOptions());
+    if (!user || !ok) {
+      // ASVS 7.2.1: failed authentication is logged with a keyed email fingerprint, never the email or the password.
+      req.log.warn({ event: "login_failed", emailHash: emailFingerprint(req.body.email), reason: user ? "bad_password" : "unknown_account", ip: req.ip }, "login failed");
+      throw new AppError("INVALID_CREDENTIALS", "Email or password is incorrect", 401);
+    }
+    reply.setCookie(SESSION_COOKIE, issueSession({ uid: user.id, role: user.role, tid: user.tenantId, sv: user.sessionVersion }, env.SESSION_SECRET, env.SESSION_TTL_SECONDS), cookieOptions());
+    await auditRepo.record({ entity: "User", entityId: user.id, action: "login", actor: `user:${user.id}`, after: { ip: req.ip, requestId: req.id } });
+    req.log.info({ event: "login_succeeded", userId: user.id }, "login succeeded");
     return { id: user.id, email: user.email, role: user.role };
   });
 
-  r.post("/auth/logout", async (_req, reply) => {
+  // Logout revokes every session of the user server-side (sessionVersion + 1), then clears the cookie.
+  r.post("/auth/logout", { schema: { tags: ["auth"] } }, async (req, reply) => {
+    const s = verifySession(req.cookies[SESSION_COOKIE], env.SESSION_SECRET);
+    if (s) {
+      await usersRepo.revokeSessions(s.uid);
+      await auditRepo.record({ entity: "User", entityId: s.uid, action: "logout", actor: `user:${s.uid}`, after: { ip: req.ip, requestId: req.id } });
+      req.log.info({ event: "logout", userId: s.uid }, "logout");
+    }
     reply.clearCookie(SESSION_COOKIE, { path: "/" });
     return { ok: true };
   });
 
-  r.get("/auth/me", { preHandler: requireAuth() }, async (req) => ({ id: req.user!.uid, role: req.user!.role, tenantId: req.user!.tid }));
+  r.get("/auth/me", { preHandler: requireAuth(), schema: { tags: ["auth"] } }, async (req) => ({ id: req.user!.uid, role: req.user!.role, tenantId: req.user!.tid }));
 }

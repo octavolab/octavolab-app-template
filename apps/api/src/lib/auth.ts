@@ -1,7 +1,9 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { createHmac } from "node:crypto";
 import { verifySession, issueSession, needsRotation, type Session } from "./session.js";
 import { env } from "../config/env.js";
 import { AppError } from "./errors.js";
+import { usersRepo } from "../repositories/users.repository.js";
 
 declare module "fastify" {
   interface FastifyRequest { user?: Session }
@@ -16,15 +18,40 @@ export const cookieOptions = () => ({
   maxAge: env.SESSION_TTL_SECONDS,
 });
 
-/** preHandler: requires a valid session and, optionally, one of the roles. Rotates the cookie after half its life. */
+/**
+ * Keyed, non-reversible fingerprint of an email for security logs (ASVS 7.1.1: no personal data in logs).
+ * HMAC rather than a bare hash so a leaked log cannot be matched against a list of known emails.
+ */
+export function emailFingerprint(email: string): string {
+  return createHmac("sha256", env.SESSION_SECRET).update(`log:email:${email.trim().toLowerCase()}`).digest("hex").slice(0, 16);
+}
+
+/**
+ * preHandler: requires a valid session and, optionally, one of the roles.
+ * On every authenticated request the user is re-read by primary key: the token is rejected (401) if the user no longer
+ * exists, its sessionVersion changed (logout, role change) or its role or tenant differ from the token. The cookie is
+ * rotated after half its life, carrying the current sessionVersion.
+ */
 export function requireAuth(roles?: Session["role"][]) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const s = verifySession(req.cookies[SESSION_COOKIE], env.SESSION_SECRET);
     if (!s) throw new AppError("UNAUTHENTICATED", "Sign in required", 401);
+    const user = await usersRepo.byId(s.uid);
+    if (!user || user.sessionVersion !== s.sv || user.role !== s.role || (user.tenantId ?? null) !== s.tid) {
+      reply.clearCookie(SESSION_COOKIE, { path: "/" });
+      throw new AppError("SESSION_REVOKED", "Sign in again", 401);
+    }
     if (roles && !roles.includes(s.role)) throw new AppError("FORBIDDEN", "Not allowed", 403);
     if (needsRotation(s, env.SESSION_TTL_SECONDS)) {
-      reply.setCookie(SESSION_COOKIE, issueSession({ uid: s.uid, role: s.role, tid: s.tid, auth: s.auth }, env.SESSION_SECRET, env.SESSION_TTL_SECONDS), cookieOptions());
+      reply.setCookie(SESSION_COOKIE, issueSession({ uid: s.uid, role: s.role, tid: s.tid, sv: s.sv, auth: s.auth }, env.SESSION_SECRET, env.SESSION_TTL_SECONDS), cookieOptions());
     }
     req.user = s;
   };
+}
+
+/** Tenant-scoped routes: a user without a tenant is never treated as a shared tenant (403). */
+export function tenantOf(req: FastifyRequest): string {
+  const tid = req.user?.tid;
+  if (!tid) throw new AppError("TENANT_REQUIRED", "This action requires a tenant", 403);
+  return tid;
 }

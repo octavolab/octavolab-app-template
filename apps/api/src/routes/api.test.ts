@@ -4,16 +4,29 @@ import argon2 from "argon2";
 
 // Environment must be set before the app (and its env schema) is imported.
 Object.assign(process.env, {
-  NODE_ENV: "test", DATABASE_URL: "postgresql://x:y@localhost:5432/z", SESSION_SECRET: "s".repeat(40), APP_URL: "http://localhost:5173",
+  NODE_ENV: "test", DATABASE_URL: "postgresql://x:y@localhost:5432/z", SESSION_SECRET: "s".repeat(40), APP_URL: "http://localhost:5173", OPS_EMAIL: "ops@test.invalid",
   INTEGRATIONS_MODE: "sandbox", PAYMENTS_PROVIDER: "stripe", STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_test",
 });
+
+// Unit tests use the in-memory rate-limit store even where CI exports REDIS_URL; the Redis store is covered by
+// test/integration/rate-limit-redis.int.test.ts against the CI Redis service.
+delete process.env.REDIS_URL;
 
 // In-memory stand-in for Prisma: enough behaviour to exercise auth, tenancy, idempotency and webhook dedupe end to end.
 const db = vi.hoisted(() => ({ users: [] as any[], orders: [] as any[], keys: new Map<string, string>(), events: new Set<string>(), audit: [] as any[], outbox: [] as any[], failNextOutbox: false }));
 vi.mock("@octavolab/db", () => {
   class PrismaClientKnownRequestError extends Error { constructor(public code: string) { super(code); } }
   const prisma: any = {
-    user: { findUnique: async ({ where }: any) => db.users.find((u) => (where.email ? u.email === where.email : u.id === where.id)) ?? null },
+    user: {
+      findUnique: async ({ where }: any) => db.users.find((u) => (where.email ? u.email === where.email : u.id === where.id)) ?? null,
+      updateMany: async ({ where, data }: any) => {
+        const u = db.users.find((x) => x.id === where.id && (where.tenantId === undefined || x.tenantId === where.tenantId));
+        if (!u) return { count: 0 };
+        if (data.role) u.role = data.role;
+        if (data.sessionVersion?.increment) u.sessionVersion += data.sessionVersion.increment;
+        return { count: 1 };
+      },
+    },
     order: {
       create: async ({ data }: any) => { const o = { id: `o${db.orders.length + 1}`, version: 0, ...data, items: data.items.create }; db.orders.push(o); return o; },
       findFirst: async ({ where }: any) => db.orders.find((o) => o.id === where.id && o.tenantId === where.tenantId) ?? null,
@@ -46,15 +59,19 @@ vi.mock("@octavolab/db", () => {
 });
 
 let app: any;
+let buildApp: any;
 const cookieOf = (res: any) => String(res.headers["set-cookie"]).split(";")[0];
 
 beforeAll(async () => {
   db.users.push(
-    { id: "u-admin", email: "admin@a.co", role: "admin", tenantId: "tA", passwordHash: await argon2.hash("correct-horse-1") },
-    { id: "u-cust", email: "c@a.co", role: "customer", tenantId: "tA", passwordHash: await argon2.hash("correct-horse-2") },
-    { id: "u-b", email: "b@b.co", role: "admin", tenantId: "tB", passwordHash: await argon2.hash("correct-horse-3") },
+    { id: "u-admin", email: "admin@a.co", role: "admin", tenantId: "tA", sessionVersion: 0, passwordHash: await argon2.hash("correct-horse-1") },
+    { id: "u-cust", email: "c@a.co", role: "customer", tenantId: "tA", sessionVersion: 0, passwordHash: await argon2.hash("correct-horse-2") },
+    { id: "u-b", email: "b@b.co", role: "admin", tenantId: "tB", sessionVersion: 0, passwordHash: await argon2.hash("correct-horse-3") },
+    { id: "u-owner", email: "owner@a.co", role: "owner", tenantId: "tA", sessionVersion: 0, passwordHash: await argon2.hash("correct-horse-4") },
+    { id: "u-ops", email: "ops@a.co", role: "operations", tenantId: "tA", sessionVersion: 0, passwordHash: await argon2.hash("correct-horse-5") },
+    { id: "u-gone", email: "gone@a.co", role: "admin", tenantId: "tA", sessionVersion: 0, passwordHash: await argon2.hash("correct-horse-6") },
   );
-  const { buildApp } = await import("../app.js");
+  ({ buildApp } = await import("../app.js"));
   app = await buildApp();
 });
 
@@ -95,11 +112,14 @@ describe("API: auth, tenancy, idempotency, webhooks", () => {
     expect((await app.inject({ method: "GET", url: `/api/v1/orders/${first.json().id}`, headers: { cookie: a } })).statusCode).toBe(200);
   });
 
-  it("rate-limits repeated login attempts on one account (429)", async () => {
+  it("rate-limits repeated login attempts on one account from one IP (429) without locking the account out elsewhere", async () => {
+    const attempt = (ip: string) => app.inject({ method: "POST", url: "/api/v1/auth/login", headers: { "x-forwarded-for": ip }, payload: { email: "ratelimit@a.co", password: "wrong-password-x" } });
     const codes: number[] = [];
-    for (let i = 0; i < 6; i++) codes.push((await app.inject({ method: "POST", url: "/api/v1/auth/login", headers: { "x-forwarded-for": `10.0.0.${i}` }, payload: { email: "ratelimit@a.co", password: "wrong-password-x" } })).statusCode); // rotating IPs does not reset the limit
+    for (let i = 0; i < 6; i++) codes.push((await attempt("10.0.0.1")).statusCode);
     expect(codes.slice(0, 5).every((c) => c === 401)).toBe(true);
     expect(codes[5]).toBe(429);
+    // Key is email + IP: the owner of the account, from their own IP, is not locked out by an attacker (lockout DoS).
+    expect((await attempt("10.0.0.2")).statusCode).toBe(401);
   });
 
   it("verifies webhook signatures, deduplicates events and moves the order to paid exactly once", async () => {
@@ -145,5 +165,74 @@ describe("API: auth, tenancy, idempotency, webhooks", () => {
     const retry = await app.inject({ method: "POST", url: "/api/v1/webhooks/payments", headers: { "content-type": "application/json", "stripe-signature": sig }, payload: body });
     expect(retry.statusCode).toBe(200);
     expect(o.status).toBe("paid");
+  });
+});
+
+describe("sessions: server-side revocation, audit and security logs", () => {
+  it("logout revokes the session server-side: the old cookie no longer works", async () => {
+    const c = cookieOf(await login("ops@a.co", "correct-horse-5"));
+    expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie: c } })).statusCode).toBe(200);
+    const out = await app.inject({ method: "POST", url: "/api/v1/auth/logout", headers: { cookie: c } });
+    expect(out.statusCode).toBe(200);
+    const replay = await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie: c } });
+    expect(replay.statusCode).toBe(401);
+    expect(replay.json().code).toBe("SESSION_REVOKED");
+    expect(db.audit.some((a) => a.action === "login" && a.entityId === "u-ops")).toBe(true);
+    expect(db.audit.some((a) => a.action === "logout" && a.entityId === "u-ops")).toBe(true);
+    expect((await app.inject({ method: "POST", url: "/api/v1/auth/logout" })).statusCode).toBe(200); // no cookie: idempotent
+  });
+
+  it("a role change revokes the target's sessions immediately and is audited", async () => {
+    const target = cookieOf(await login("admin@a.co", "correct-horse-1"));
+    const owner = cookieOf(await login("owner@a.co", "correct-horse-4"));
+    const r = await app.inject({ method: "PATCH", url: "/api/v1/users/u-admin/role", headers: { cookie: owner }, payload: { role: "operations" } });
+    expect(r.statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie: target } })).statusCode).toBe(401);
+    expect(db.audit.some((a) => a.action === "role_change" && a.entityId === "u-admin")).toBe(true);
+    const fresh = cookieOf(await login("admin@a.co", "correct-horse-1"));
+    expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie: fresh } })).json().role).toBe("operations");
+    // restore for later tests
+    expect((await app.inject({ method: "PATCH", url: "/api/v1/users/u-admin/role", headers: { cookie: owner }, payload: { role: "admin" } })).statusCode).toBe(200);
+  });
+
+  it("role changes are owner-only, tenant-scoped and never self-applied", async () => {
+    const owner = cookieOf(await login("owner@a.co", "correct-horse-4"));
+    const admin = cookieOf(await login("admin@a.co", "correct-horse-1"));
+    expect((await app.inject({ method: "PATCH", url: "/api/v1/users/u-cust/role", headers: { cookie: admin }, payload: { role: "admin" } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "PATCH", url: "/api/v1/users/u-b/role", headers: { cookie: owner }, payload: { role: "customer" } })).statusCode).toBe(404);
+    expect((await app.inject({ method: "PATCH", url: "/api/v1/users/u-owner/role", headers: { cookie: owner }, payload: { role: "customer" } })).statusCode).toBe(409);
+  });
+
+  it("rejects a valid token whose user was deleted, or whose role or tenant no longer match", async () => {
+    const c = cookieOf(await login("gone@a.co", "correct-horse-6"));
+    const u = db.users.find((x) => x.id === "u-gone");
+    u.tenantId = "tB";
+    expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie: c } })).statusCode).toBe(401);
+    u.tenantId = "tA"; u.role = "owner";
+    expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie: c } })).statusCode).toBe(401);
+    db.users.splice(db.users.indexOf(u), 1);
+    expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie: c } })).statusCode).toBe(401);
+  });
+
+  it("logs login_failed with an email fingerprint, never the email or the password", async () => {
+    const lines: string[] = [];
+    const logged = await buildApp({ logStream: { write: (l: string) => lines.push(l) } });
+    await logged.inject({ method: "POST", url: "/api/v1/auth/login", payload: { email: "Victim@a.co", password: "secret-password-9" } });
+    await logged.close();
+    const failed = lines.map((l) => JSON.parse(l)).find((l) => l.event === "login_failed");
+    expect(failed.emailHash).toMatch(/^[0-9a-f]{16}$/);
+    expect(failed.reason).toBe("unknown_account");
+    const all = lines.join("\n").toLowerCase();
+    expect(all).not.toContain("victim@a.co");
+    expect(all).not.toContain("secret-password-9");
+  });
+
+  it("reuses a safe client x-request-id and replaces an unsafe one", async () => {
+    const ok = await app.inject({ method: "GET", url: "/api/health", headers: { "x-request-id": "abc-123_DEF" } });
+    expect(ok.headers["x-request-id"]).toBe("abc-123_DEF");
+    const bad = await app.inject({ method: "GET", url: "/api/health", headers: { "x-request-id": "evil\ninjected log line" } });
+    expect(bad.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
+    const long = await app.inject({ method: "GET", url: "/api/health", headers: { "x-request-id": "a".repeat(65) } });
+    expect(long.headers["x-request-id"]).not.toBe("a".repeat(65));
   });
 });

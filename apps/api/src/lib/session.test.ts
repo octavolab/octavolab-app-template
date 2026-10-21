@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import { issueSession, verifySession, needsRotation } from "./session.js";
 
 const secret = "x".repeat(32);
-const base = { uid: "u1", role: "admin" as const, tid: "t1" };
+const base = { uid: "u1", role: "admin" as const, tid: "t1", sv: 0 };
 
 describe("session", () => {
   it("round-trips a valid session", () => {
@@ -39,6 +39,13 @@ describe("session", () => {
     const rotated = issueSession({ ...base, auth: first.auth }, secret, 1800, (12 * 3600 - 60) * 1000);
     expect(verifySession(rotated, secret, (12 * 3600 - 30) * 1000)).not.toBeNull();
     expect(verifySession(rotated, secret, 12 * 3600 * 1000)).toBeNull();
+  });
+  it("carries the session version and rejects a signed token without one", () => {
+    expect(verifySession(issueSession({ ...base, sv: 3 }, secret, 1800), secret)?.sv).toBe(3);
+    const nowS = Math.floor(Date.now() / 1000);
+    const legacy = Buffer.from(JSON.stringify({ uid: "u1", role: "admin", tid: "t1", auth: nowS, exp: nowS + 600 })).toString("base64url");
+    const mac = createHmac("sha256", secret).update(legacy).digest("base64url");
+    expect(verifySession(`${legacy}.${mac}`, secret)).toBeNull();
   });
   it("rejects garbage", () => {
     expect(verifySession(undefined, secret)).toBeNull();

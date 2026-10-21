@@ -20,6 +20,8 @@ model User {
   passwordHash String
   role         Role     @default(customer)
   totpSecret   String?
+  // Incremented on logout and role change; session tokens carry it (`sv`) and stop working when it changes.
+  sessionVersion Int    @default(0)
   createdAt    DateTime @default(now())
   @@index([tenantId])
 }

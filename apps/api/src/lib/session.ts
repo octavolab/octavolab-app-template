@@ -1,7 +1,11 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-/** Stateless signed session (HMAC-SHA256). Short-lived; rotated on every authenticated request that is past half its life. */
-export type Session = { uid: string; role: "owner" | "admin" | "operations" | "customer"; tid: string | null; exp: number; auth: number };
+/**
+ * Signed session token (HMAC-SHA256). Short-lived; rotated on every authenticated request that is past half its life.
+ * `sv` is the user's sessionVersion at sign-in: logout and role changes increment it in the database, and requireAuth
+ * rejects any token whose `sv`, role or tenant no longer match the stored user (server-side revocation).
+ */
+export type Session = { uid: string; role: "owner" | "admin" | "operations" | "customer"; tid: string | null; sv: number; exp: number; auth: number };
 
 /** Absolute lifetime: a session rotated forever still ends this long after the original sign-in. */
 export const MAX_SESSION_AGE_SECONDS = 12 * 60 * 60;
@@ -28,6 +32,7 @@ export function verifySession(token: string | undefined, secret: string, now = D
     const nowS = Math.floor(now / 1000);
     if (typeof s.exp !== "number" || s.exp <= nowS) return null;
     if (typeof s.auth !== "number" || nowS - s.auth >= MAX_SESSION_AGE_SECONDS) return null;
+    if (typeof s.sv !== "number") return null; // tokens issued before session versions existed must sign in again
     return s;
   } catch {
     return null;

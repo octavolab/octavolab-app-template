@@ -3,6 +3,8 @@ import type { PaymentGateway, CarrierRates, MessagingProvider } from "./contract
 import { FakePayments, FakeCarrier, FakeMessaging } from "./fake.js";
 import { StripeGateway } from "./stripe.js";
 
+// Production must choose a mode explicitly (the API env schema enforces it too); only dev and test default to fake.
+if (process.env.NODE_ENV === "production" && !process.env.INTEGRATIONS_MODE) throw new Error("INTEGRATIONS_MODE must be set explicitly in production");
 const mode = process.env.INTEGRATIONS_MODE ?? "fake";
 export function getPayments(): PaymentGateway {
   if (mode === "fake") return new FakePayments();
