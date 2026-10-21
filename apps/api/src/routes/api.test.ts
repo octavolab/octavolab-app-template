@@ -13,7 +13,7 @@ Object.assign(process.env, {
 delete process.env.REDIS_URL;
 
 // In-memory stand-in for Prisma: enough behaviour to exercise auth, tenancy, idempotency and webhook dedupe end to end.
-const db = vi.hoisted(() => ({ users: [] as any[], orders: [] as any[], keys: new Map<string, string>(), events: new Set<string>(), audit: [] as any[], outbox: [] as any[], failNextOutbox: false }));
+const db = vi.hoisted(() => ({ users: [] as any[], orders: [] as any[], keys: new Map<string, { response: string; requestHash: string }>(), events: new Set<string>(), audit: [] as any[], outbox: [] as any[], failNextOutbox: false }));
 vi.mock("@octavolab/db", () => {
   class PrismaClientKnownRequestError extends Error { constructor(public code: string) { super(code); } }
   const prisma: any = {
@@ -38,8 +38,8 @@ vi.mock("@octavolab/db", () => {
       },
     },
     idempotencyKey: {
-      findUnique: async ({ where }: any) => (db.keys.has(where.key) ? { response: db.keys.get(where.key) } : null),
-      create: async ({ data }: any) => { db.keys.set(data.key, data.response); return data; },
+      findUnique: async ({ where }: any) => db.keys.get(where.key) ?? null,
+      create: async ({ data }: any) => { db.keys.set(data.key, { response: data.response, requestHash: data.requestHash }); return data; },
     },
     auditLog: { create: async ({ data }: any) => { db.audit.push(data); return data; } },
     outbox: { create: async ({ data }: any) => { if (db.failNextOutbox) { db.failNextOutbox = false; throw new Error("injected failure"); } db.outbox.push(data); return data; } },
@@ -70,12 +70,15 @@ beforeAll(async () => {
     { id: "u-owner", email: "owner@a.co", role: "owner", tenantId: "tA", sessionVersion: 0, passwordHash: await argon2.hash("correct-horse-4") },
     { id: "u-ops", email: "ops@a.co", role: "operations", tenantId: "tA", sessionVersion: 0, passwordHash: await argon2.hash("correct-horse-5") },
     { id: "u-gone", email: "gone@a.co", role: "admin", tenantId: "tA", sessionVersion: 0, passwordHash: await argon2.hash("correct-horse-6") },
+    { id: "u-none", email: "none@x.co", role: "admin", tenantId: null, sessionVersion: 0, passwordHash: await argon2.hash("correct-horse-7") },
   );
   ({ buildApp } = await import("../app.js"));
   app = await buildApp();
 });
 
-const login = async (email: string, password: string) => app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { email, password } });
+// Each sign-in comes from its own client IP so the per (email, IP) login limit only triggers in the test that targets it.
+let ipSeq = 0;
+const login = async (email: string, password: string) => app.inject({ method: "POST", url: "/api/v1/auth/login", headers: { "x-forwarded-for": `10.1.${Math.floor(++ipSeq / 250)}.${ipSeq % 250}` }, payload: { email, password } });
 const order = { customerEmail: "x@y.co", currency: "USD", items: [{ sku: "A", qty: 2, unitAmount: 1250 }] };
 
 describe("API: auth, tenancy, idempotency, webhooks", () => {
@@ -110,6 +113,22 @@ describe("API: auth, tenancy, idempotency, webhooks", () => {
     const b = cookieOf(await login("b@b.co", "correct-horse-3"));
     expect((await app.inject({ method: "GET", url: `/api/v1/orders/${first.json().id}`, headers: { cookie: b } })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: `/api/v1/orders/${first.json().id}`, headers: { cookie: a } })).statusCode).toBe(200);
+  });
+
+  it("a user without a tenant cannot create or read orders (403), never a shared null tenant", async () => {
+    const n = cookieOf(await login("none@x.co", "correct-horse-7"));
+    const created = await app.inject({ method: "POST", url: "/api/v1/orders", headers: { cookie: n, "idempotency-key": "k-notenant-1" }, payload: order });
+    expect(created.statusCode).toBe(403);
+    expect(created.json().code).toBe("TENANT_REQUIRED");
+    expect((await app.inject({ method: "GET", url: `/api/v1/orders/${db.orders[0].id}`, headers: { cookie: n } })).statusCode).toBe(403);
+  });
+
+  it("rejects an Idempotency-Key reused with a different body (422)", async () => {
+    const a = cookieOf(await login("admin@a.co", "correct-horse-1"));
+    const other = { ...order, items: [{ sku: "B", qty: 1, unitAmount: 999 }] };
+    const r = await app.inject({ method: "POST", url: "/api/v1/orders", headers: { cookie: a, "idempotency-key": "k-00000003" }, payload: other });
+    expect(r.statusCode).toBe(422);
+    expect(r.json().code).toBe("IDEMPOTENCY_MISMATCH");
   });
 
   it("rate-limits repeated login attempts on one account from one IP (429) without locking the account out elsewhere", async () => {

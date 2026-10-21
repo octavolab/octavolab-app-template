@@ -27,6 +27,14 @@ describe.runIf(run)("orders against PostgreSQL", () => {
     expect(await prisma.outbox.count()).toBe(1);
   });
 
+  it("binds the key to the body (422) and the database refuses an order without tenant", async () => {
+    const other = { customerEmail: "x@y.co", currency: "USD", items: [{ sku: "A", qty: 3, unitAmount: 1250 }] };
+    await expect(createOrder(other, "k-int-1", { tenantId: "tA", actor: "test" })).rejects.toMatchObject({ code: "IDEMPOTENCY_MISMATCH", status: 422 });
+    await expect(prisma.$executeRawUnsafe(`INSERT INTO "Order"(id,"customerEmail",currency,"totalAmount","updatedAt") VALUES ('o-null','a@b.co','USD',1,now())`)).rejects.toThrow();
+    const key = await prisma.idempotencyKey.findFirstOrThrow();
+    expect(key.requestHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
   it("optimistic transition succeeds once and rejects a stale version", async () => {
     const o = await prisma.order.findFirstOrThrow();
     const first = await prisma.$transaction((tx: any) => ordersRepo.transition(tx, o.id, ["draft"], "confirmed", o.version));

@@ -28,8 +28,8 @@ model User {
 
 model Order {
   id            String      @id @default(cuid())
-  tenantId      String?
-  tenant        Tenant?     @relation(fields: [tenantId], references: [id])
+  tenantId      String      // required: there is no shared "null tenant"
+  tenant        Tenant      @relation(fields: [tenantId], references: [id])
   customerEmail String
   currency      String
   totalAmount   Int         // minor units
@@ -64,8 +64,9 @@ model Outbox {
 }
 
 model IdempotencyKey {
-  key       String   @id
-  response  String
+  key         String   @id // "<tenantId>:<client key>"
+  requestHash String   // sha256 of the canonical JSON of the operation and its input; a different body with the same key is rejected (422)
+  response    String
   createdAt DateTime @default(now())
 }
 
