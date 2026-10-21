@@ -6,5 +6,7 @@ export default [
   { files: ["**/*.ts", "**/*.tsx"], languageOptions: { parser, parserOptions: { project: false } },
     plugins: { "@typescript-eslint": tseslint },
     rules: { "@typescript-eslint/no-explicit-any": "error", "no-empty": ["error", { allowEmptyCatch: false }], "no-console": ["warn", { allow: ["warn", "error"] }] } },
+  // Test doubles (in-memory Prisma) are intentionally loosely typed; production code keeps no-explicit-any as an error.
+  { files: ["**/*.test.ts", "**/test/**/*.ts"], rules: { "@typescript-eslint/no-explicit-any": "off" } },
   prettier,
 ];

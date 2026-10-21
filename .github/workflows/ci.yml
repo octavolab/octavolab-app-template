@@ -28,9 +28,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate && pnpm db:migrate
       - run: pnpm lint && pnpm typecheck
+      - name: Integration tests against PostgreSQL (real database, migrations applied)
+        run: INTEGRATION=1 pnpm --filter api test:int
       - run: pnpm test
       - name: Migrations exist and are applied (Prisma has no down migrations; rollback plan per migration in its folder)
-        run: test -n "$(ls packages/db/prisma/migrations 2>/dev/null)" && pnpm --filter @octavolab/db exec prisma migrate status
+        run: test -n "$(ls packages/db/prisma/migrations 2>/dev/null)" && pnpm --filter @octavolab/db exec prisma migrate status && pnpm --filter @octavolab/db exec prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
       - run: pnpm build
       - name: E2E (390/768/1024/1440 + axe)
         run: |

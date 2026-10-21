@@ -11,6 +11,8 @@ import { randomUUID } from "node:crypto";
 import { env } from "./config/env.js";
 import { healthRoutes } from "./routes/health.js";
 import { orderRoutes } from "./routes/orders.js";
+import { authRoutes } from "./routes/auth.js";
+import { webhookRoutes } from "./routes/webhooks.js";
 import { AppError } from "./lib/errors.js";
 
 export async function buildApp() {
@@ -41,7 +43,9 @@ export async function buildApp() {
   });
 
   await app.register(healthRoutes, { prefix: "/api" });
+  await app.register(authRoutes, { prefix: "/api/v1" });
   await app.register(orderRoutes, { prefix: "/api/v1" });
+  await app.register(webhookRoutes, { prefix: "/api/v1" });
   await app.register(fastifyStatic, { root: path.resolve(process.cwd(), "apps/web/dist"), wildcard: false });
   app.setNotFoundHandler((req, reply) => req.url.startsWith("/api") ? reply.code(404).send({ code: "NOT_FOUND", message: "route not found", requestId: req.id }) : reply.sendFile("index.html"));
   return app;

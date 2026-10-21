@@ -1,5 +1,5 @@
 -- Initial migration, written by hand from schema.prisma on 2026-10-21 because the Prisma engine download is blocked
--- in the authoring environment. CI must run `prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url $SHADOW_DATABASE_URL --exit-code`
+-- in the authoring environment. CI runs `prisma migrate diff --from-url $DATABASE_URL --to-schema-datamodel prisma/schema.prisma --exit-code` after `migrate deploy`
 -- on the first run; a non-zero exit means this file drifted from the schema and must be regenerated with `prisma migrate dev --name init`.
 
 -- CreateEnum

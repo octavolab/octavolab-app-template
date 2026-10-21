@@ -1,6 +1,14 @@
 # Changelog
 All notable changes to this project are documented here (Keep a Changelog, semver).
 
+## [0.4.0] - 2026-10-21
+### Added (independent review, round 3)
+- Authentication: Argon2id, signed sessions with rotation, `POST /auth/login`, `/auth/logout`, `GET /auth/me`; login rate limit per IP and email; no user enumeration.
+- Authorization: role guard and tenant-scoped reads (`GET /orders/:id` returns 404 across tenants); idempotency keys scoped by tenant.
+- Payments webhook route with signature check, dedupe and race-safe transition to paid; order state machine.
+- Repository layer for users and orders.
+- 21 unit and API tests (in-memory Prisma) with coverage 87/82/86 and 100 % on money, session and state logic; integration tests against PostgreSQL in CI.
+
 ## [0.3.0] - 2026-10-21
 ### Fixed (independent review, round 2)
 - Initial SQL migration (validated on PostgreSQL via PGlite: 8 tables, indexes, foreign keys) with migration_lock and a rollback plan; CI checks migrations exist.

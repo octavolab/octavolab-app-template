@@ -6,6 +6,7 @@ const schema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().default("redis://localhost:6379"),
   SESSION_SECRET: z.string().min(32),
+  SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(1800),
   APP_URL: z.string().url(),
   INTEGRATIONS_MODE: z.enum(["fake", "sandbox", "live"]).default("fake"),
   PAYMENTS_PROVIDER: z.enum(["fake", "stripe", "wompi", "payu", "mercadopago"]).default("fake"),

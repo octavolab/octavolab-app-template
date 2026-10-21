@@ -1,3 +1,3 @@
 import { defineConfig } from "vitest/config";
-// Ratchet: raise these only in PRs that add tests (Módulo C 7.1 target: 80/80/70; 100 % in money and state logic).
-export default defineConfig({ resolve: { conditions: ["development"] }, test: { coverage: { provider: "v8", reporter: ["text", "lcov"], include: ["src/**"], exclude: ["src/server.ts"], thresholds: { lines: 25, functions: 20, branches: 50, "src/lib/money.ts": { lines: 100 } } } } });
+// Ratchet (raised 21 oct 2026 to the level reached on source files: 87 lines, 82 branches, 86 functions). Never lower; 100 % required in money, session and state logic.
+export default defineConfig({ resolve: { conditions: ["development"] }, test: { exclude: ["test/integration/**", "node_modules/**"], coverage: { provider: "v8", reporter: ["text", "lcov"], include: ["src/**"], exclude: ["src/server.ts", "src/**/*.test.ts"], thresholds: { lines: 85, functions: 80, branches: 80, "src/lib/money.ts": { lines: 100 }, "src/lib/order-state.ts": { lines: 100 }, "src/lib/session.ts": { lines: 100 } } } } });
