@@ -10,6 +10,8 @@ import { AppError } from "./errors.js";
  */
 export type LoginLimits = { pairMax: number; pairWindowMs: number; accountMax: number; accountWindowMs: number };
 
+const MAX_KEYS = 50_000;
+
 export function createLoginLimiter(redis: Redis | undefined, limits: LoginLimits) {
   const mem = new Map<string, { count: number; resetAt: number }>();
 
@@ -20,6 +22,9 @@ export function createLoginLimiter(redis: Redis | undefined, limits: LoginLimits
       return { count: Number(res[0]?.[1] ?? 0), ttlMs: Number(res[2]?.[1] ?? windowMs) };
     }
     const now = Date.now();
+    // Bound memory in single-instance mode: sweep expired windows when the map grows; if still full, fail closed.
+    if (mem.size > MAX_KEYS) for (const [k, v] of mem) if (v.resetAt <= now) mem.delete(k);
+    if (mem.size > MAX_KEYS && !mem.has(key)) throw new Error("login limiter memory full");
     const cur = mem.get(key);
     if (!cur || cur.resetAt <= now) { mem.set(key, { count: 1, resetAt: now + windowMs }); return { count: 1, ttlMs: windowMs }; }
     cur.count += 1;
