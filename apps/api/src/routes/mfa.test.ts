@@ -235,8 +235,12 @@ describe("REQUIRE_OWNER_2FA", () => {
     expect((await call("PUT", "/api/v1/products/SKU1", owner.sid, { name: "x", unitAmount: 100, currency: "GBP" })).statusCode).toBe(200);
     const off = await call("POST", "/api/v1/auth/2fa/disable", owner.sid, { password: PW, code: codeAt(owner.secret, STEP) });
     expect([off.statusCode, off.json().code]).toEqual([409, "MFA_REQUIRED"]);
-    // Staff roles are not forced by this option.
+    // Operations staff are not forced by this option; admins are (they change prices and roles).
     expect((await call("GET", "/api/v1/products", await sidOf("ops@m.co"))).statusCode).toBe(200);
+    const adminLogin = await password("plain@m.co");
+    expect(adminLogin.json()).toMatchObject({ role: "admin", mfaEnrollmentRequired: true });
+    const adminBlocked = await call("PUT", "/api/v1/products/SKU1", cookies(adminLogin).sid!, { name: "x", unitAmount: 100, currency: "GBP" });
+    expect([adminBlocked.statusCode, adminBlocked.json().code]).toEqual([403, "MFA_ENROLLMENT_REQUIRED"]);
   });
 
   it("the owner resets another user's 2FA in the same tenant only, never their own, and it is audited", async () => {
@@ -254,6 +258,20 @@ describe("REQUIRE_OWNER_2FA", () => {
     expect([r.statusCode, r.json()]).toEqual([200, { id: "m-ops", mfaEnabled: false }]);
     expect(db.audit.some((a) => a.action === "mfa_reset" && a.entityId === "m-ops" && a.actor === "user:m-owner")).toBe(true);
     expect((await call("GET", "/api/v1/auth/me", opsSid)).statusCode).toBe(401);
+  });
+
+  it("never resets another owner's 2FA from the API, and demoting a 2FA user to customer clears their TOTP and recovery codes", async () => {
+    const { usersRepo } = await import("../repositories/users.repository.js");
+    const { resetForUser } = await import("../services/mfa.service.js");
+    const owner2 = { ...db.users.find((x) => x.id === "m-owner"), id: "m-owner2", email: "owner2@m.co" };
+    db.users.push(owner2);
+    await expect(resetForUser("m-owner2", { tenantId: "tM", actorId: "m-owner", ip: "1.1.1.1", requestId: "r" } as never)).rejects.toMatchObject({ code: "OWNER_MFA_RESET" });
+    const ops = db.users.find((x) => x.id === "m-ops");
+    ops.totpSecret = "enc"; ops.totpEnabledAt = new Date();
+    db.recoveryCodes = [...(db.recoveryCodes ?? []), { userId: "m-ops", codeHash: "h" }];
+    const { prisma } = await import("@octavolab/db");
+    await prisma.$transaction((tx: never) => usersRepo.changeRole(tx, "m-ops", "tM", "customer"));
+    expect([ops.role, ops.totpSecret, ops.totpEnabledAt]).toEqual(["customer", null, null]);
   });
 });
 

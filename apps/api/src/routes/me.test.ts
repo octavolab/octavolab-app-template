@@ -189,6 +189,9 @@ describe("customer self-service orders and checkout", () => {
     const all = (await get("/api/v1/me/orders", c1)).json().items;
     expect(all.every((o: { customerUserId: string; tenantId: string }) => o.customerUserId === "cust-1" && o.tenantId === "tA")).toBe(true);
     expect((await get("/api/v1/me/orders?limit=0", c1)).statusCode).toBe(400);
+    // Another customer's order id is not a valid cursor (no ordering oracle).
+    const bad = await get(`/api/v1/me/orders?limit=1&cursor=${page1.nextCursor}`, c2);
+    expect([bad.statusCode, bad.json().code]).toEqual([400, "BAD_CURSOR"]);
   });
 
   it("the signed webhook moves the customer's order to paid, visible on GET /me/orders/:id", async () => {

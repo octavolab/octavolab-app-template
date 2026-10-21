@@ -35,8 +35,9 @@ export function secretBox(): SecretBox {
 
 export const mfaEnabled = (u: Pick<UserRow, "totpEnabledAt">) => Boolean(u.totpEnabledAt);
 
-/** Owners must enroll before using the app when REQUIRE_OWNER_2FA=true. */
-export const enrollmentRequired = (u: Pick<UserRow, "role" | "totpEnabledAt">) => u.role === "owner" && env.REQUIRE_OWNER_2FA && !mfaEnabled(u);
+/** Privileged roles (owner and admin: they change prices, roles and orders) must enroll before using the app when REQUIRE_OWNER_2FA=true. */
+export const PRIVILEGED_MFA_ROLES: readonly Session["role"][] = ["owner", "admin"];
+export const enrollmentRequired = (u: Pick<UserRow, "role" | "totpEnabledAt">) => PRIVILEGED_MFA_ROLES.includes(u.role) && env.REQUIRE_OWNER_2FA && !mfaEnabled(u);
 
 function assertMfaRole(u: Pick<UserRow, "role">) {
   if (!MFA_ROLES.includes(u.role)) throw new AppError("MFA_NOT_AVAILABLE", "Two-factor authentication is available for staff and owner accounts", 403);
@@ -104,7 +105,7 @@ export async function disable(userId: string, password: string, f: Factor, meta:
   secretBox();
   const u = await loadUser(userId);
   if (!mfaEnabled(u)) throw new AppError("MFA_NOT_ENABLED", "Two-factor authentication is not enabled", 409);
-  if (u.role === "owner" && env.REQUIRE_OWNER_2FA) throw new AppError("MFA_REQUIRED", "Owners must keep two-factor authentication enabled", 409);
+  if (PRIVILEGED_MFA_ROLES.includes(u.role) && env.REQUIRE_OWNER_2FA) throw new AppError("MFA_REQUIRED", "Owners and admins must keep two-factor authentication enabled", 409);
   const passwordOk = await argon2.verify(u.passwordHash, password).catch(() => false);
   const method = passwordOk ? await verifySecondFactor(u, f) : null;
   if (!method) {
@@ -144,6 +145,8 @@ export async function resetForUser(targetId: string, ctx: { tenantId: string; ac
   if (targetId === ctx.actorId) throw new AppError("SELF_MFA_RESET", "Owners cannot reset their own two-factor authentication", 409);
   const u = await usersRepo.byId(targetId);
   if (!u || u.tenantId !== ctx.tenantId) throw notFound("User");
+  // An owner's second factor is never removed by another owner from the API: it follows the runbook (identity check out of band).
+  if (u.role === "owner") throw new AppError("OWNER_MFA_RESET", "Owner 2FA reset follows the runbook", 409);
   await prisma.$transaction(async (tx) => {
     await usersRepo.clearTotp(tx, u.id);
     await recoveryCodesRepo.deleteAll(tx, u.id);

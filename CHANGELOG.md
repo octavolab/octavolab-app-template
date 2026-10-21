@@ -2,6 +2,12 @@
 All notable changes to this project are documented here (Keep a Changelog, semver).
 
 ## [0.7.0] - 2026-10-22
+
+### Security follow-ups from the independent re-audit
+- 2FA is required for admins as well as owners when `REQUIRE_OWNER_2FA=true` (unit).
+- Owner 2FA cannot be reset by another owner from the API; it follows the runbook (unit).
+- Demoting a user to customer clears TOTP and recovery codes (unit).
+- `/me/orders` rejects a cursor that is not one of the caller's orders (unit).
 Independent audit (43/50): the three code gaps closed. "Unit" means it runs locally and in CI against the in-memory Prisma
 stand-in; "PG (CI)" means a PostgreSQL integration test that runs only in CI; "real run" means only a real CI run, provider
 sandbox or Lightsail deploy can confirm it.

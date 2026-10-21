@@ -35,7 +35,10 @@ export const usersRepo = {
 
   /** Role change inside the caller's tenant; also revokes the user's sessions so the old role cannot be used. */
   changeRole: async (tx: Tx, id: string, tenantId: string, role: Session["role"]) => {
-    const r = await tx.user.updateMany({ where: { id, tenantId }, data: { role, sessionVersion: { increment: 1 } } });
+    // A role without 2FA endpoints (customer) must not keep a TOTP it can no longer manage: clear it with its recovery codes.
+    const keepsMfa = (["owner", "admin", "operations"] as Session["role"][]).includes(role);
+    const r = await tx.user.updateMany({ where: { id, tenantId }, data: { role, sessionVersion: { increment: 1 }, ...(keepsMfa ? {} : { totpSecret: null, totpEnabledAt: null, totpLastStep: null }) } });
+    if (r.count === 1 && !keepsMfa) await tx.mfaRecoveryCode.deleteMany({ where: { userId: id } });
     return r.count === 1;
   },
 };

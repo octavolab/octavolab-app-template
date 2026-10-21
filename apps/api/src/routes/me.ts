@@ -5,7 +5,7 @@ import { createCustomerOrder } from "../services/orders.service.js";
 import { startCheckout } from "../services/checkout.service.js";
 import { ordersRepo } from "../repositories/orders.repository.js";
 import { requireAuth, tenantOf } from "../lib/auth.js";
-import { notFound } from "../lib/errors.js";
+import { AppError, notFound } from "../lib/errors.js";
 import { CheckoutResponse, IdempotencyHeaders } from "./orders.js";
 
 const OrderId = z.object({ id: z.string().min(1).max(64) });
@@ -43,6 +43,8 @@ export async function meRoutes(app: FastifyInstance) {
       querystring: z.object({ limit: z.coerce.number().int().min(1).max(100).default(20), cursor: z.string().min(1).max(64).optional() }),
     },
   }, async (req) => {
+    // A cursor must be one of the caller's own orders; otherwise its position would leak another order's creation time.
+    if (req.query.cursor && !(await ordersRepo.byIdForCustomer(req.query.cursor, tenantOf(req), req.user!.uid))) throw new AppError("BAD_CURSOR", "Invalid cursor", 400);
     const rows = await ordersRepo.listForCustomer(tenantOf(req), req.user!.uid, { limit: req.query.limit, cursor: req.query.cursor });
     const hasMore = rows.length > req.query.limit;
     const items = hasMore ? rows.slice(0, req.query.limit) : rows;
