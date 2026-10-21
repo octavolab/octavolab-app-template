@@ -1,4 +1,6 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyError } from "fastify";
+import fastifyStatic from "@fastify/static";
+import path from "node:path";
 import helmet from "@fastify/helmet";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
@@ -26,8 +28,11 @@ export async function buildApp() {
   await app.register(rateLimit, { max: 100, timeWindow: "1 minute" });
   await app.register(swagger, { openapi: { info: { title: "API", version: "1.0.0" } }, transform: jsonSchemaTransform });
 
-  app.setErrorHandler((err, req, reply) => {
+  app.setErrorHandler((err: FastifyError & Partial<AppError>, req, reply) => {
     const requestId = req.id;
+    if (err.validation || (err.statusCode && err.statusCode < 500)) {
+      return reply.status(err.statusCode ?? 400).send({ code: err.code ?? "VALIDATION", message: err.message, requestId });
+    }
     if (err instanceof AppError) {
       return reply.status(err.status).send({ code: err.code, message: err.message, requestId });
     }
@@ -37,5 +42,7 @@ export async function buildApp() {
 
   await app.register(healthRoutes, { prefix: "/api" });
   await app.register(orderRoutes, { prefix: "/api/v1" });
+  await app.register(fastifyStatic, { root: path.resolve(process.cwd(), "apps/web/dist"), wildcard: false });
+  app.setNotFoundHandler((req, reply) => req.url.startsWith("/api") ? reply.code(404).send({ code: "NOT_FOUND", message: "route not found", requestId: req.id }) : reply.sendFile("index.html"));
   return app;
 }

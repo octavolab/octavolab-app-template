@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { PaymentGateway, Money } from "./contracts.js";
 import { withRetry } from "./contracts.js";
 /**
@@ -23,8 +24,12 @@ export class StripeGateway implements PaymentGateway {
     return { providerRef: r.id, clientSecret: r.client_secret };
   }
   async verifyWebhook(rawBody: string, signature: string) {
-    // Implement signature verification with STRIPE_WEBHOOK_SECRET (HMAC SHA-256 over `${t}.${rawBody}`) before enabling live mode.
-    if (!signature) throw new Error("missing signature");
+    const secret = process.env.STRIPE_WEBHOOK_SECRET; if (!secret) throw new Error("STRIPE_WEBHOOK_SECRET missing");
+    const parts = Object.fromEntries(signature.split(",").map((p) => p.split("=") as [string, string]));
+    const t = parts["t"], v1 = parts["v1"]; if (!t || !v1) throw new Error("invalid signature header");
+    if (Math.abs(Date.now() / 1000 - Number(t)) > 300) throw new Error("signature timestamp outside tolerance");
+    const expected = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
+    if (expected.length !== v1.length || !timingSafeEqual(Buffer.from(expected), Buffer.from(v1))) throw new Error("invalid signature");
     const d = JSON.parse(rawBody) as { id: string; type: string; data: unknown };
     return { eventId: d.id, type: d.type, data: d.data };
   }

@@ -20,7 +20,8 @@
         "lightsail:GetBuckets",
         "lightsail:GetCertificates",
         "lightsail:GetRegions",
-        "lightsail:GetContainerServicePowers"
+        "lightsail:GetContainerServicePowers",
+        "lightsail:GetContainerAPIMetadata"
       ],
       "Resource": "*"
     },
