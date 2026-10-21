@@ -10,8 +10,8 @@ test("home renders without horizontal overflow and passes axe", async ({ page })
   expect(results.violations.filter((v) => v.impact === "critical")).toEqual([]);
 });
 
-test("api health", async ({ request }) => {
-  const res = await request.get(`${process.env.API_URL ?? "http://localhost:3000"}/api/health`);
+test("api health through the web origin (vite dev/preview proxy to the API)", async ({ request }) => {
+  const res = await request.get("/api/health");
   expect(res.ok()).toBeTruthy();
   const body = await res.json();
   expect(body.ok).toBe(true);

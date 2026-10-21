@@ -1,6 +1,6 @@
 # CLAUDE.md · instrucciones permanentes para cualquier agente o developer
 
-kit: octavolab-core (versión vigente, hoy 6.8.1) · módulos: S (software dinámico), C (ingeniería de producción), L (aprendizaje)
+kit: octavolab-core (versión vigente, hoy 6.8.4) · módulos: S (software dinámico), C (ingeniería de producción), L (aprendizaje)
 
 ## Lo que nunca se toca
 - Secretos: nunca en el repositorio ni en el chat. `.env` está ignorado. Producción usa variables de entorno de Lightsail.
@@ -19,13 +19,13 @@ kit: octavolab-core (versión vigente, hoy 6.8.1) · módulos: S (software diná
 - TypeScript strict; `any` prohibido sin comentario de justificación.
 - Capas: routes → services → repositories → db. Reglas de negocio solo en services.
 - Toda escritura de negocio en transacción; endpoints que crean dinero, pedidos o mensajes aceptan `Idempotency-Key`.
-- Efectos externos por outbox (`packages/db` tabla `Outbox`), nunca dentro de la transacción.
+- Efectos externos por outbox (`packages/db` tabla `Outbox`), nunca dentro de la transacción. Excepción documentada: el checkout crea la intención de pago de forma síncrona ANTES de la transacción, con llave de idempotencia del proveedor por pedido (ver ARCHITECTURE.md, flujo 2).
 - Dinero en enteros (unidad menor) con `currency` ISO. Fechas en UTC.
 - Toda entidad de negocio escribe en `AuditLog`.
 - Textos de interfaz en `apps/web/src/i18n/{es,en}.json`.
 
 ## Comandos
-- `pnpm dev` · `pnpm test` · `pnpm e2e` · `pnpm check` · `pnpm db:migrate` · `pnpm db:seed` · `pnpm build`
+- `pnpm dev` · `pnpm test` · `pnpm e2e` · `pnpm check` · `pnpm db:migrate` · `pnpm db:seed` · `pnpm build` · `pnpm --filter @octavolab/db validate:sql` (migraciones en PGlite) · `INTEGRATION=1 pnpm --filter api test:int` (PostgreSQL real)
 - Despliegue: `infra/deploy.sh staging|prod` (prod solo con aprobación). Humo: `infra/smoke.sh <url>`.
 
 ## Aprobaciones de Jaime (N07): se agrupan cuando coinciden en el tiempo; lo que surge después se pide en su momento; nada irreversible sin aprobación
