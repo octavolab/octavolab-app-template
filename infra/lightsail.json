@@ -1,0 +1,40 @@
+{
+  "containers": {
+    "app": {
+      "image": ":SERVICE_NAME.app.latest",
+      "ports": {
+        "3000": "HTTP"
+      },
+      "environment": {
+        "NODE_ENV": "production",
+        "PORT": "3000",
+        "APP_VERSION": "${APP_VERSION}"
+      }
+    },
+    "worker": {
+      "image": ":SERVICE_NAME.app.latest",
+      "command": [
+        "node",
+        "apps/api/dist/workers/outbox.worker.js"
+      ],
+      "environment": {
+        "NODE_ENV": "production"
+      }
+    },
+    "redis": {
+      "image": "redis:7-alpine",
+      "ports": {
+        "6379": "TCP"
+      }
+    }
+  },
+  "publicEndpoint": {
+    "containerName": "app",
+    "containerPort": 3000,
+    "healthCheck": {
+      "path": "/api/health",
+      "intervalSeconds": 30,
+      "successCodes": "200"
+    }
+  }
+}

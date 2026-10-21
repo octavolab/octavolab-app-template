@@ -1,0 +1,86 @@
+generator client { provider = "prisma-client-js" }
+datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
+
+enum Role { owner admin operations customer }
+enum OrderStatus { draft confirmed paid shipped delivered closed cancelled refunded }
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  users     User[]
+  orders    Order[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id])
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(customer)
+  totpSecret   String?
+  createdAt    DateTime @default(now())
+  @@index([tenantId])
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  tenantId      String?
+  tenant        Tenant?     @relation(fields: [tenantId], references: [id])
+  customerEmail String
+  currency      String
+  totalAmount   Int         // minor units
+  status        OrderStatus @default(draft)
+  version       Int         @default(0) // optimistic locking
+  items         OrderItem[]
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  @@index([tenantId, status])
+}
+
+model OrderItem {
+  id         String @id @default(cuid())
+  orderId    String
+  order      Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sku        String
+  qty        Int
+  unitAmount Int
+  @@index([orderId])
+}
+
+model Outbox {
+  id          String    @id @default(cuid())
+  type        String
+  payload     Json
+  attempts    Int       @default(0)
+  lastError   String?
+  deliveredAt DateTime?
+  createdAt   DateTime  @default(now())
+  @@index([deliveredAt, createdAt])
+}
+
+model IdempotencyKey {
+  key       String   @id
+  response  String
+  createdAt DateTime @default(now())
+}
+
+model WebhookEvent {
+  id         String   @id // provider event id
+  provider   String
+  payload    Json
+  receivedAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  entity    String
+  entityId  String
+  action    String
+  actor     String
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now())
+  @@index([entity, entityId])
+}

@@ -1,0 +1,40 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LightsailProjectServices",
+      "Effect": "Allow",
+      "Action": [
+        "lightsail:GetContainerServices",
+        "lightsail:GetContainerServiceDeployments",
+        "lightsail:GetContainerLog",
+        "lightsail:GetContainerImages",
+        "lightsail:PushContainerImage",
+        "lightsail:RegisterContainerImage",
+        "lightsail:CreateContainerServiceDeployment",
+        "lightsail:UpdateContainerService",
+        "lightsail:GetContainerServiceMetricData",
+        "lightsail:GetRelationalDatabase",
+        "lightsail:GetRelationalDatabaseSnapshots",
+        "lightsail:CreateRelationalDatabaseSnapshot",
+        "lightsail:GetBuckets",
+        "lightsail:GetCertificates",
+        "lightsail:GetRegions",
+        "lightsail:GetContainerServicePowers"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyDestructive",
+      "Effect": "Deny",
+      "Action": [
+        "lightsail:DeleteContainerService",
+        "lightsail:DeleteRelationalDatabase",
+        "lightsail:DeleteBucket",
+        "lightsail:DeleteContainerImage",
+        "lightsail:DeleteRelationalDatabaseSnapshot"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
