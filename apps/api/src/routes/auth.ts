@@ -17,8 +17,8 @@ export async function authRoutes(app: FastifyInstance) {
   const r = app.withTypeProvider<ZodTypeProvider>();
 
   r.post("/auth/login", {
-    // 5 attempts per minute per IP and email: brute force on one account is stopped without locking out a whole office behind one IP.
-    config: { rateLimit: { max: 5, timeWindow: "1 minute", hook: "preHandler", keyGenerator: (req) => `${req.ip}:${String((req.body as { email?: string } | undefined)?.email ?? "").toLowerCase()}` } },
+    // 5 attempts per minute per account from any IP (Módulo C 6.2: limit per user): rotating IPs or X-Forwarded-For does not reset it; the global limit per IP still applies.
+    config: { rateLimit: { max: 5, timeWindow: "1 minute", hook: "preHandler", keyGenerator: (req) => `login:${String((req.body as { email?: string } | undefined)?.email ?? "").toLowerCase()}` } },
     schema: { body: z.object({ email: z.string().email().max(254), password: z.string().min(8).max(200) }) },
   }, async (req, reply) => {
     const user = await usersRepo.byEmail(req.body.email);

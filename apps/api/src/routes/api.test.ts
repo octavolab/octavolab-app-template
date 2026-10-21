@@ -9,7 +9,7 @@ Object.assign(process.env, {
 });
 
 // In-memory stand-in for Prisma: enough behaviour to exercise auth, tenancy, idempotency and webhook dedupe end to end.
-const db = vi.hoisted(() => ({ users: [] as any[], orders: [] as any[], keys: new Map<string, string>(), events: new Set<string>(), audit: [] as any[], outbox: [] as any[] }));
+const db = vi.hoisted(() => ({ users: [] as any[], orders: [] as any[], keys: new Map<string, string>(), events: new Set<string>(), audit: [] as any[], outbox: [] as any[], failNextOutbox: false }));
 vi.mock("@octavolab/db", () => {
   class PrismaClientKnownRequestError extends Error { constructor(public code: string) { super(code); } }
   const prisma: any = {
@@ -29,9 +29,17 @@ vi.mock("@octavolab/db", () => {
       create: async ({ data }: any) => { db.keys.set(data.key, data.response); return data; },
     },
     auditLog: { create: async ({ data }: any) => { db.audit.push(data); return data; } },
-    outbox: { create: async ({ data }: any) => { db.outbox.push(data); return data; } },
+    outbox: { create: async ({ data }: any) => { if (db.failNextOutbox) { db.failNextOutbox = false; throw new Error("injected failure"); } db.outbox.push(data); return data; } },
     webhookEvent: { create: async ({ data }: any) => { if (db.events.has(data.id)) throw new PrismaClientKnownRequestError("P2002"); db.events.add(data.id); return data; } },
-    $transaction: async (fn: any) => fn(prisma),
+    // Snapshot and restore on error: enough to model rollback of events, orders, audit and outbox.
+    $transaction: async (fn: any) => {
+      const snap = { events: new Set(db.events), orders: db.orders.map((o) => ({ ...o })), audit: [...db.audit], outbox: [...db.outbox] };
+      try { return await fn(prisma); } catch (e) {
+        db.events = snap.events; db.audit = snap.audit; db.outbox = snap.outbox;
+        snap.orders.forEach((s, i) => Object.assign(db.orders[i], s));
+        throw e;
+      }
+    },
     $queryRaw: async () => [{ 1: 1 }],
   };
   return { prisma, Prisma: { PrismaClientKnownRequestError } };
@@ -89,7 +97,7 @@ describe("API: auth, tenancy, idempotency, webhooks", () => {
 
   it("rate-limits repeated login attempts on one account (429)", async () => {
     const codes: number[] = [];
-    for (let i = 0; i < 6; i++) codes.push((await login("ratelimit@a.co", "wrong-password-x")).statusCode);
+    for (let i = 0; i < 6; i++) codes.push((await app.inject({ method: "POST", url: "/api/v1/auth/login", headers: { "x-forwarded-for": `10.0.0.${i}` }, payload: { email: "ratelimit@a.co", password: "wrong-password-x" } })).statusCode); // rotating IPs does not reset the limit
     expect(codes.slice(0, 5).every((c) => c === 401)).toBe(true);
     expect(codes[5]).toBe(429);
   });
@@ -97,7 +105,7 @@ describe("API: auth, tenancy, idempotency, webhooks", () => {
   it("verifies webhook signatures, deduplicates events and moves the order to paid exactly once", async () => {
     const o = db.orders[0];
     o.status = "confirmed";
-    const body = JSON.stringify({ id: "evt_1", type: "payment_intent.succeeded", data: { object: { metadata: { orderId: o.id } } } });
+    const body = JSON.stringify({ id: "evt_1", type: "payment_intent.succeeded", data: { object: { amount: o.totalAmount, currency: "usd", metadata: { orderId: o.id } } } });
     const t = Math.floor(Date.now() / 1000);
     const sig = `t=${t},v1=${createHmac("sha256", "whsec_test").update(`${t}.${body}`).digest("hex")}`;
     const post = (s: string) => app.inject({ method: "POST", url: "/api/v1/webhooks/payments", headers: { "content-type": "application/json", "stripe-signature": s }, payload: body });
@@ -110,5 +118,32 @@ describe("API: auth, tenancy, idempotency, webhooks", () => {
     const dup = await post(sig);
     expect(dup.json().duplicate).toBe(true);
     expect(db.outbox.filter((e) => e.type === "order.paid").length).toBe(1);
+  });
+
+  it("does not mark an order paid when amount or currency differ, and audits the mismatch", async () => {
+    const o = db.orders[0];
+    o.status = "confirmed";
+    const body = JSON.stringify({ id: "evt_2", type: "payment_intent.succeeded", data: { object: { amount: 1, currency: "usd", metadata: { orderId: o.id } } } });
+    const t = Math.floor(Date.now() / 1000);
+    const sig = `t=${t},v1=${createHmac("sha256", "whsec_test").update(`${t}.${body}`).digest("hex")}`;
+    const r = await app.inject({ method: "POST", url: "/api/v1/webhooks/payments", headers: { "content-type": "application/json", "stripe-signature": sig }, payload: body });
+    expect(r.statusCode).toBe(200);
+    expect(o.status).toBe("confirmed");
+    expect(db.audit.some((a) => a.action === "payment_mismatch")).toBe(true);
+  });
+
+  it("rolls back the event record when the transaction fails, so the provider retry is processed", async () => {
+    const o = db.orders[0];
+    o.status = "confirmed";
+    const body = JSON.stringify({ id: "evt_3", type: "payment_intent.succeeded", data: { object: { amount: o.totalAmount, currency: "usd", metadata: { orderId: o.id } } } });
+    const t = Math.floor(Date.now() / 1000);
+    const sig = `t=${t},v1=${createHmac("sha256", "whsec_test").update(`${t}.${body}`).digest("hex")}`;
+    db.failNextOutbox = true;
+    const first = await app.inject({ method: "POST", url: "/api/v1/webhooks/payments", headers: { "content-type": "application/json", "stripe-signature": sig }, payload: body });
+    expect(first.statusCode).toBe(500);
+    expect(db.events.has("evt_3")).toBe(false);
+    const retry = await app.inject({ method: "POST", url: "/api/v1/webhooks/payments", headers: { "content-type": "application/json", "stripe-signature": sig }, payload: body });
+    expect(retry.statusCode).toBe(200);
+    expect(o.status).toBe("paid");
   });
 });

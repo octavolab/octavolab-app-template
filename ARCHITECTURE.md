@@ -21,6 +21,6 @@ flowchart LR
 See `docs/adr/`. 0001 stack · 0002 transactional outbox · 0003 integrations via adapters.
 
 ## Main flows
-1. Request → session check (role, tenant) → zod validation → service (transaction) → repository → audit log → outbox event.
+1. Request → session check (role, tenant) → zod validation → service (transaction) → audit log → outbox event. Repositories cover reads and state transitions; order creation and the webhook still write through Prisma inside their transaction (roadmap: move them behind repositories).
 2. Worker reads outbox → calls provider adapter with retries → marks delivered.
-3. Provider webhook (`POST /api/v1/webhooks/payments`) → signature check on the raw body → dedupe by provider event id (`WebhookEvent`) → optimistic state transition + audit + outbox in one transaction → 200.
+3. Provider webhook (`POST /api/v1/webhooks/payments`) → signature check on the raw body → one transaction: event record (`WebhookEvent`, unique provider id), amount and currency check against the order, optimistic state transition, audit and outbox; a failure rolls everything back so the provider retry is processed; a duplicate is acknowledged without effects → 200.

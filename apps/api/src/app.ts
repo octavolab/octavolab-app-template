@@ -19,7 +19,7 @@ export async function buildApp() {
   const app = Fastify({
     logger: { level: env.NODE_ENV === "test" ? "silent" : "info", redact: ["req.headers.authorization", "req.headers.cookie"] },
     genReqId: (req) => (req.headers["x-request-id"] as string | undefined) ?? randomUUID(),
-    trustProxy: true,
+    trustProxy: (_addr: string, hop: number) => hop < 1, // trust only the Lightsail public endpoint (one hop; confirm on the first deploy): `true` trusts a client-sent X-Forwarded-For and defeats the rate limits
   });
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);

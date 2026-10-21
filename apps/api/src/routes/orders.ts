@@ -24,7 +24,7 @@ export async function orderRoutes(app: FastifyInstance) {
   });
 
   r.get("/orders/:id", {
-    preHandler: requireAuth(),
+    preHandler: requireAuth(["owner", "admin", "operations"]), // staff only: a customer would otherwise read other customers' orders in the same tenant
     schema: { params: z.object({ id: z.string().min(1).max(64) }) },
   }, async (req) => {
     const order = await ordersRepo.byIdForTenant(req.params.id, req.user!.tid);

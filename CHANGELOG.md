@@ -1,6 +1,17 @@
 # Changelog
 All notable changes to this project are documented here (Keep a Changelog, semver).
 
+## [0.5.0] - 2026-10-21
+### Fixed (independent review, round 4)
+- Webhook event record, amount and currency check, state change, audit and outbox now commit in one transaction (tested rollback and retry).
+- Payments with a different amount or currency do not mark the order paid; the mismatch is audited (tested).
+- Sessions have a 12-hour absolute lifetime from sign-in even when rotated (tested).
+
+## [0.4.1] - 2026-10-21
+### Fixed (independent review, round 4)
+- Integration tests were excluded by vitest.config.ts (`test:int` found no files); they now run with INTEGRATION=1.
+- Fake payments webhook (unsigned) closed when NODE_ENV=production; proxy trust limited to one hop; login limit per account from any IP (tested with rotating X-Forwarded-For); orders readable by staff roles only.
+
 ## [0.4.0] - 2026-10-21
 ### Added (independent review, round 3)
 - Authentication: Argon2id, signed sessions with rotation, `POST /auth/login`, `/auth/logout`, `GET /auth/me`; login rate limit per IP and email; no user enumeration.

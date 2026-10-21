@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-// Unit test with a mocked prisma. The DB integration test against the CI Postgres service (migrations exist since 0.3.0) is still pending (roadmap, N52).
+// Unit test with a mocked prisma. DB integration tests against the CI Postgres service live in test/integration (INTEGRATION=1 pnpm --filter api test:int).
 vi.mock("@octavolab/db", () => {
   const store: Record<string, unknown> = {};
   const tx = {

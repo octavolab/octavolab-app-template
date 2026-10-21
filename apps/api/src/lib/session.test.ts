@@ -33,6 +33,13 @@ describe("session", () => {
     const mac = createHmac("sha256", secret).update(payload).digest("base64url");
     expect(verifySession(`${payload}.${mac}`, secret)).toBeNull();
   });
+  it("ends after the absolute lifetime even if rotated", () => {
+    const t0 = 0;
+    const first = verifySession(issueSession(base, secret, 1800, t0), secret, t0)!;
+    const rotated = issueSession({ ...base, auth: first.auth }, secret, 1800, (12 * 3600 - 60) * 1000);
+    expect(verifySession(rotated, secret, (12 * 3600 - 30) * 1000)).not.toBeNull();
+    expect(verifySession(rotated, secret, 12 * 3600 * 1000)).toBeNull();
+  });
   it("rejects garbage", () => {
     expect(verifySession(undefined, secret)).toBeNull();
     expect(verifySession("abc", secret)).toBeNull();

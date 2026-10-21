@@ -23,7 +23,7 @@ export function requireAuth(roles?: Session["role"][]) {
     if (!s) throw new AppError("UNAUTHENTICATED", "Sign in required", 401);
     if (roles && !roles.includes(s.role)) throw new AppError("FORBIDDEN", "Not allowed", 403);
     if (needsRotation(s, env.SESSION_TTL_SECONDS)) {
-      reply.setCookie(SESSION_COOKIE, issueSession({ uid: s.uid, role: s.role, tid: s.tid }, env.SESSION_SECRET, env.SESSION_TTL_SECONDS), cookieOptions());
+      reply.setCookie(SESSION_COOKIE, issueSession({ uid: s.uid, role: s.role, tid: s.tid, auth: s.auth }, env.SESSION_SECRET, env.SESSION_TTL_SECONDS), cookieOptions());
     }
     req.user = s;
   };
