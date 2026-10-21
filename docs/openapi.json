@@ -24,6 +24,162 @@
         }
       }
     },
+    "/api/v1/auth/2fa/enroll": {
+      "post": {
+        "summary": "Start TOTP enrollment: returns the otpauth URI and secret once",
+        "tags": [
+          "auth",
+          "2fa"
+        ],
+        "description": "Staff and owner only. Restarting before activation replaces the pending secret. 409 if 2FA is already enabled. Response is Cache-Control: no-store.",
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/2fa/activate": {
+      "post": {
+        "summary": "Activate TOTP with a code from the authenticator; returns 10 single-use recovery codes once",
+        "tags": [
+          "auth",
+          "2fa"
+        ],
+        "description": "Revokes the user's other sessions and re-issues the caller's cookie. 422 MFA_INVALID_CODE on a wrong code (rate-limited, audited).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/2fa/disable": {
+      "post": {
+        "summary": "Disable 2FA with the password and a code or recovery code",
+        "tags": [
+          "auth",
+          "2fa"
+        ],
+        "description": "409 MFA_REQUIRED for owners while REQUIRE_OWNER_2FA=true. Revokes the user's other sessions.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 200
+                  },
+                  "code": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$"
+                  },
+                  "recoveryCode": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 24,
+                    "pattern": "^[A-Za-z0-9 -]+$"
+                  }
+                },
+                "required": [
+                  "password"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/2fa/recovery-codes": {
+      "post": {
+        "summary": "Replace the recovery codes (old ones stop working); confirm with a TOTP code",
+        "tags": [
+          "auth",
+          "2fa"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/users/{id}/2fa/reset": {
+      "post": {
+        "summary": "Owner: reset another user's 2FA in the owner's tenant (lost device); audited, revokes their sessions",
+        "tags": [
+          "users",
+          "2fa"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "tags": [
@@ -51,6 +207,43 @@
                   "email",
                   "password"
                 ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login/mfa": {
+      "post": {
+        "summary": "Second login step: TOTP code or recovery code after a correct password",
+        "tags": [
+          "auth"
+        ],
+        "description": "Requires the httpOnly mfa cookie set by POST /auth/login when it answered { mfaRequired: true } (valid 5 minutes). Send exactly one of code (6 digits) or recoveryCode. Rate-limited per user (5 per 5 minutes per IP, 20 per day). A recovery code works once.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$"
+                  },
+                  "recoveryCode": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 24,
+                    "pattern": "^[A-Za-z0-9 -]+$"
+                  }
+                },
                 "additionalProperties": false
               }
             }

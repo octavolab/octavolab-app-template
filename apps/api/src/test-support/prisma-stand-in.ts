@@ -50,6 +50,8 @@ export function matches(row: Row, where: Where): boolean {
   return true;
 }
 
+const copy = (r: Row | undefined) => (r ? { ...r } : null);
+
 function apply(row: Row, data: Row) {
   for (const [k, v] of Object.entries(data)) {
     if (v === undefined) continue;
@@ -68,8 +70,9 @@ function assertUnique(table: Row[], row: Row, fields: string[][]) {
 function model(table: () => Row[], opts: { prefix: string; unique?: string[][]; defaults?: () => Row; create?: (data: Row) => Row }) {
   const unique = opts.unique ?? [];
   return {
-    findUnique: async ({ where }: any) => table().find((r) => matches(r, where)) ?? null,
-    findFirst: async ({ where }: any) => table().find((r) => matches(r, where)) ?? null,
+    // Reads return copies, like Prisma: a later update must not change an object the service already holds.
+    findUnique: async ({ where }: any) => copy(table().find((r) => matches(r, where))),
+    findFirst: async ({ where }: any) => copy(table().find((r) => matches(r, where))),
     findMany: async ({ where, orderBy, take, cursor, skip }: any = {}) => {
       let rows = table().filter((r) => matches(r, where));
       const order = (Array.isArray(orderBy) ? orderBy : orderBy ? [orderBy] : []) as Record<string, "asc" | "desc">[];
@@ -84,7 +87,7 @@ function model(table: () => Row[], opts: { prefix: string; unique?: string[][]; 
       });
       if (cursor) { const i = rows.findIndex((r) => r.id === cursor.id); rows = i < 0 ? [] : rows.slice(i); }
       if (skip) rows = rows.slice(skip);
-      return take === undefined ? rows : rows.slice(0, take);
+      return (take === undefined ? rows : rows.slice(0, take)).map((r) => ({ ...r }));
     },
     count: async ({ where }: any = {}) => table().filter((r) => matches(r, where)).length,
     create: async ({ data }: any) => {

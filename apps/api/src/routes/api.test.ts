@@ -345,6 +345,9 @@ describe("OpenAPI", () => {
     expect(spec.paths["/api/v1/users/{id}/role"].patch).toBeDefined();
     expect(spec.paths["/api/v1/me/orders/{id}/checkout"].post.summary).toMatch(/pending_payment/);
     expect(spec.paths["/api/v1/me/orders"].post.requestBody.content["application/json"].schema.additionalProperties).toBe(false);
+    for (const p of ["/api/v1/auth/login/mfa", "/api/v1/auth/2fa/enroll", "/api/v1/auth/2fa/activate", "/api/v1/auth/2fa/disable", "/api/v1/auth/2fa/recovery-codes", "/api/v1/users/{id}/2fa/reset"]) {
+      expect(spec.paths[p].post, p).toBeDefined();
+    }
     const file = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../docs/openapi.json");
     const text = `${JSON.stringify(spec, null, 2)}\n`;
     if (process.env.UPDATE_OPENAPI === "1") writeFileSync(file, text);

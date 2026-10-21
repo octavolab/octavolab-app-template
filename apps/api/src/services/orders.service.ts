@@ -46,8 +46,8 @@ export async function createCustomerOrder(input: CustomerOrderInput, idempotency
 
   const skus = [...new Set(input.items.map((i) => i.sku))];
   if (skus.length !== input.items.length) throw new AppError("DUPLICATE_SKU", "Each SKU may appear once; use qty", 422);
-  const products = await productsRepo.activeBySkus(ctx.tenantId, skus);
-  const bySku = new Map(products.map((p) => [p.sku, p]));
+  const products: { sku: string; unitAmount: number; currency: string }[] = await productsRepo.activeBySkus(ctx.tenantId, skus);
+  const bySku = new Map(products.map((p) => [p.sku, p] as const));
   const missing = skus.filter((s) => !bySku.has(s));
   if (missing.length) throw new AppError("UNKNOWN_SKU", `Unknown or unavailable SKU: ${missing.slice(0, 5).join(", ")}`, 422);
   const currencies = new Set(products.map((p) => p.currency));

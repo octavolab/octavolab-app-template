@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { parseMasterKey } from "../lib/secret-box.js";
+
+const isMasterKey = (v: string) => { try { parseMasterKey(v); return true; } catch { return false; } };
 
 export const envSchema = z
   .object({
@@ -24,8 +27,20 @@ export const envSchema = z
     RESEND_API_KEY: z.string().regex(/^re_[A-Za-z0-9_]+$/, "must be a Resend API key (re_...)").optional(),
     // Sender: "noreply@domain" or "Name <noreply@domain>"; the domain must be verified in Resend (live).
     MESSAGING_FROM: z.string().max(320).regex(/^(?:[^<>\r\n]{1,100} <[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>|[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+)$/, "must be an email or 'Name <email>'").optional(),
+    // TOTP 2FA: master key for encrypting TOTP secrets at rest (AES-256-GCM) and keying recovery-code hashes.
+    // 32 random bytes in base64: `openssl rand -base64 32`. Without it, 2FA endpoints answer 503 and accounts with 2FA
+    // enabled cannot sign in (fail closed). Rotating it invalidates every enrolled secret (users re-enroll).
+    TOTP_ENC_KEY: z.string().refine(isMasterKey, "must be 32 random bytes in base64 (openssl rand -base64 32)").optional(),
+    // "true": an owner without 2FA can sign in but every route except enrollment answers 403 MFA_ENROLLMENT_REQUIRED, and
+    // owners cannot disable 2FA. Set to "true" in infra/lightsail.json for staging and production.
+    REQUIRE_OWNER_2FA: z.enum(["true", "false"]).default("false").transform((v) => v === "true"),
+    // Issuer shown in authenticator apps (no colon: it is part of the otpauth label).
+    TOTP_ISSUER: z.string().min(1).max(64).regex(/^[^:]+$/, "must not contain ':'").default("OctavoLab"),
   })
   .superRefine((e, ctx) => {
+    if (e.REQUIRE_OWNER_2FA && !e.TOTP_ENC_KEY) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["TOTP_ENC_KEY"], message: "required when REQUIRE_OWNER_2FA=true" });
+    }
     if (e.NODE_ENV === "production" && !e.INTEGRATIONS_MODE) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["INTEGRATIONS_MODE"], message: "must be set explicitly in production (fake | sandbox | live); it never defaults to fake" });
     }

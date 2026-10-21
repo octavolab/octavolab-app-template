@@ -20,12 +20,29 @@ model User {
   email        String   @unique
   passwordHash String
   role         Role     @default(customer)
+  // TOTP 2FA (staff and owner). totpSecret is AES-256-GCM ciphertext ("v1.<iv>.<tag>.<ct>", key TOTP_ENC_KEY), never plaintext.
+  // Secret set + totpEnabledAt null = enrollment pending; totpEnabledAt set = 2FA required at login.
   totpSecret   String?
+  totpEnabledAt DateTime?
+  // Last accepted TOTP time step: a code is single-use (any step <= this one is refused).
+  totpLastStep Int?
   // Incremented on logout and role change; session tokens carry it (`sv`) and stop working when it changes.
   sessionVersion Int    @default(0)
   createdAt    DateTime @default(now())
   orders       Order[]  @relation("CustomerOrders")
+  recoveryCodes MfaRecoveryCode[]
   @@index([tenantId])
+}
+
+/// Single-use 2FA recovery codes: only a keyed HMAC-SHA256 of each code is stored; usedAt is set atomically on use.
+model MfaRecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  @@index([userId])
 }
 
 /// Tenant price list. Customer self-service orders are priced from here, never from the request body.

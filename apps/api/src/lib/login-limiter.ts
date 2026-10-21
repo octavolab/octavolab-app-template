@@ -8,11 +8,14 @@ import { AppError } from "./errors.js";
  * Uses Redis when configured (shared by every API instance) and process memory otherwise (single instance only).
  * Fails closed: if Redis is configured but unreachable, login answers 429 instead of skipping the check.
  */
-export type LoginLimits = { pairMax: number; pairWindowMs: number; accountMax: number; accountWindowMs: number };
+export type LoginLimits = {
+  pairMax: number; pairWindowMs: number; accountMax: number; accountWindowMs: number;
+};
 
 const MAX_KEYS = 50_000;
 
-export function createLoginLimiter(redis: Redis | undefined, limits: LoginLimits) {
+/** Fixed-window counters in Redis (shared) or process memory (single instance, bounded, fails closed when full). */
+function createWindowStore(redis: Redis | undefined) {
   const mem = new Map<string, { count: number; resetAt: number }>();
 
   async function hit(key: string, windowMs: number): Promise<{ count: number; ttlMs: number }> {
@@ -31,6 +34,16 @@ export function createLoginLimiter(redis: Redis | undefined, limits: LoginLimits
     return { count: cur.count, ttlMs: cur.resetAt - now };
   }
 
+  async function peek(key: string): Promise<number> {
+    if (redis) return Number((await redis.get(key)) ?? 0);
+    const cur = mem.get(key);
+    return cur && cur.resetAt > Date.now() ? cur.count : 0;
+  }
+  return { hit, peek };
+}
+
+export function createLoginLimiter(redis: Redis | undefined, limits: LoginLimits) {
+  const { hit } = createWindowStore(redis);
   return async function check(email: string | undefined, ip: string): Promise<void> {
     const acct = String(email ?? "").trim().toLowerCase();
     let pair: { count: number; ttlMs: number }, account: { count: number; ttlMs: number };
@@ -45,3 +58,34 @@ export function createLoginLimiter(redis: Redis | undefined, limits: LoginLimits
     }
   };
 }
+
+/**
+ * Second-factor limiter (2FA codes and recovery codes), per user:
+ *  - `check` before every attempt: at most `pairMax` attempts per (user, IP) per `pairWindowMs` (counts every attempt), and
+ *    refuses once the user has `failureMax` FAILED attempts in `failureWindowMs` across all IPs;
+ *  - `fail` after a rejected code: only failures count toward the daily cap, so a user who signs in many times a day is
+ *    never blocked by their own successful logins.
+ * Fails closed like the login limiter (429 when the store is unavailable).
+ */
+export type MfaLimits = { pairMax: number; pairWindowMs: number; failureMax: number; failureWindowMs: number };
+
+export function createMfaLimiter(redis: Redis | undefined, limits: MfaLimits) {
+  const store = createWindowStore(redis);
+  const tooMany = () => new AppError("RATE_LIMITED", "Too many verification attempts, try again later", 429);
+  return {
+    async check(userId: string, ip: string): Promise<void> {
+      let pair: { count: number }, failures: number;
+      try {
+        pair = await store.hit(`mfa:${userId}:${ip}`, limits.pairWindowMs);
+        failures = await store.peek(`mfa-fail:${userId}`);
+      } catch {
+        throw tooMany();
+      }
+      if (pair.count > limits.pairMax || failures >= limits.failureMax) throw tooMany();
+    },
+    async fail(userId: string): Promise<void> {
+      await store.hit(`mfa-fail:${userId}`, limits.failureWindowMs).catch(() => undefined); // the pair window still applies
+    },
+  };
+}
+export type MfaLimiter = ReturnType<typeof createMfaLimiter>;

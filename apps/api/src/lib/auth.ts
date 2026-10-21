@@ -4,12 +4,13 @@ import { verifySession, issueSession, needsRotation, type Session } from "./sess
 import { env } from "../config/env.js";
 import { AppError } from "./errors.js";
 import { usersRepo } from "../repositories/users.repository.js";
+import { enrollmentRequired, mfaEnabled } from "../services/mfa.service.js";
 
 declare module "fastify" {
   interface FastifyRequest {
     user?: Session;
     /** The account re-read from the database by requireAuth (never from the token). */
-    account?: { id: string; email: string };
+    account?: { id: string; email: string; mfaEnabled: boolean; mfaEnrollmentRequired: boolean };
   }
 }
 
@@ -35,8 +36,10 @@ export function emailFingerprint(email: string): string {
  * On every authenticated request the user is re-read by primary key: the token is rejected (401) if the user no longer
  * exists, its sessionVersion changed (logout, role change) or its role or tenant differ from the token. The cookie is
  * rotated after half its life, carrying the current sessionVersion.
+ * With REQUIRE_OWNER_2FA=true an owner without 2FA gets 403 MFA_ENROLLMENT_REQUIRED on every route that does not pass
+ * `allowMfaEnrollment` (only /auth/me and the /auth/2fa enrollment routes do).
  */
-export function requireAuth(roles?: Session["role"][]) {
+export function requireAuth(roles?: Session["role"][], opts: { allowMfaEnrollment?: boolean } = {}) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const s = verifySession(req.cookies[SESSION_COOKIE], env.SESSION_SECRET);
     if (!s) throw new AppError("UNAUTHENTICATED", "Sign in required", 401);
@@ -45,12 +48,14 @@ export function requireAuth(roles?: Session["role"][]) {
       reply.clearCookie(SESSION_COOKIE, { path: "/" });
       throw new AppError("SESSION_REVOKED", "Sign in again", 401);
     }
+    const mustEnroll = enrollmentRequired(user);
+    if (mustEnroll && !opts.allowMfaEnrollment) throw new AppError("MFA_ENROLLMENT_REQUIRED", "Set up two-factor authentication first", 403);
     if (roles && !roles.includes(s.role)) throw new AppError("FORBIDDEN", "Not allowed", 403);
     if (needsRotation(s, env.SESSION_TTL_SECONDS)) {
       reply.setCookie(SESSION_COOKIE, issueSession({ uid: s.uid, role: s.role, tid: s.tid, sv: s.sv, auth: s.auth }, env.SESSION_SECRET, env.SESSION_TTL_SECONDS), cookieOptions());
     }
     req.user = s;
-    req.account = { id: user.id, email: user.email };
+    req.account = { id: user.id, email: user.email, mfaEnabled: mfaEnabled(user), mfaEnrollmentRequired: mustEnroll };
   };
 }
 
@@ -59,4 +64,9 @@ export function tenantOf(req: FastifyRequest): string {
   const tid = req.user?.tid;
   if (!tid) throw new AppError("TENANT_REQUIRED", "This action requires a tenant", 403);
   return tid;
+}
+
+/** Re-issues the caller's session cookie with a new sessionVersion (after a 2FA change revoked the old ones), keeping the sign-in time. */
+export function reissueSession(reply: FastifyReply, s: Session, sv: number) {
+  reply.setCookie(SESSION_COOKIE, issueSession({ uid: s.uid, role: s.role, tid: s.tid, sv, auth: s.auth }, env.SESSION_SECRET, env.SESSION_TTL_SECONDS), cookieOptions());
 }
