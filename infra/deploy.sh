@@ -19,6 +19,11 @@ import json,sys
 env=sys.argv[1]; new=json.load(open(f'/tmp/lightsail.{env}.json')); act=json.load(open(f'/tmp/active.{env}.json')) or {}
 for name,c in new['containers'].items():
     c['environment']={**act.get(name,{}).get('environment',{}),**c.get('environment',{})}
+# The worker validates the same environment as the API (DATABASE_URL, SESSION_SECRET, APP_URL, OPS_EMAIL, INTEGRATIONS_MODE):
+# it inherits the app container's variables; its own values (NODE_ENV and any override) win.
+if 'worker' in new['containers'] and 'app' in new['containers']:
+    w=new['containers']['worker']
+    w['environment']={**new['containers']['app'].get('environment',{}),**w.get('environment',{})}
 json.dump(new,open(f'/tmp/lightsail.{env}.json','w'))
 EOF
 aws lightsail create-container-service-deployment --region "$REGION" --service-name "$SERVICE" --cli-input-json "file:///tmp/lightsail.$ENV.json"

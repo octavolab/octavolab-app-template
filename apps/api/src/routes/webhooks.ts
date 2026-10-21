@@ -50,7 +50,14 @@ export async function webhookRoutes(app: FastifyInstance) {
           return;
         }
         const moved = await ordersRepo.transition(tx, order.id, sourcesOf("paid"), "paid", order.version);
-        if (!moved) return; // already paid or not payable: idempotent no-op
+        if (!moved) {
+          // Already paid (idempotent) or not payable from its current status (for example still draft): leave an audit trail, never lose it silently.
+          if (order.status !== "paid") {
+            await tx.auditLog.create({ data: { entity: "Order", entityId: order.id, action: "payment_unapplied", actor: `webhook:${event.eventId}`,
+              after: { status: order.status, intent: obj.id ?? null, amountReceived: obj.amount_received ?? null } } });
+          }
+          return;
+        }
         await tx.auditLog.create({ data: { entity: "Order", entityId: order.id, action: "paid", actor: `webhook:${event.eventId}`, before: { status: order.status }, after: { status: "paid" } } });
         await tx.outbox.create({ data: { type: "order.paid", payload: { orderId: order.id } } });
       });

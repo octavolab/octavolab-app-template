@@ -35,7 +35,10 @@ Lightsail deploy can confirm it.
   failure (PG (CI)); docs no longer call the in-memory tests "tested" against a database.
 - Auth events: `login_failed` logged with an email fingerprint; AuditLog for login and logout (unit).
 - Rate limits: Redis store when `REDIS_URL` is set (PG (CI)), memory otherwise (single-instance limitation documented);
-  login limit keyed by email + IP (no lockout DoS) (unit).
+  login limits in two windows: 5 per minute per email + IP (an attacker on another IP cannot lock the owner out) and a soft cap of 30 per hour per account across all IPs (stops distributed guessing; recovers by itself, so an attacker can delay that account's logins for up to an hour, the accepted trade-off); both fail closed if Redis is down, while ordinary routes fail open (unit).
+- A succeeded payment for an order that is not payable (for example still draft) is audited as `payment_unapplied` instead of being dropped (unit).
+- `/api/health` reports `deps.redis` (ok, down, not_configured) (unit).
+- Deploy: the worker container inherits the app container's environment (it validates the same variables) (only confirmable in a real Lightsail deploy).
 - Production refuses to start without an explicit `INTEGRATIONS_MODE` (unit).
 - AWS credentials documented as OIDC role assumption everywhere (deploy.sh, runbook, onboarding, SECURITY.md).
 

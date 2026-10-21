@@ -1,3 +1,5 @@
+import type { Redis } from "ioredis";
+import { createLoginLimiter } from "../lib/login-limiter.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -17,12 +19,19 @@ const DUMMY_HASH = argon2.hash(randomUUID());
 /** Login attempts are counted per account AND client IP: an attacker cannot lock a victim out from another IP. */
 export const loginRateKey = (email: string | undefined, ip: string) => `login:${String(email ?? "").trim().toLowerCase()}:${ip}`;
 
+/** Soft per-account cap across all IPs: stops distributed guessing against one account; recovers by itself after the window. */
+export const loginAccountKey = (email: string | undefined) => `login-acct:${String(email ?? "").trim().toLowerCase()}`;
+export const LOGIN_ACCOUNT_MAX_PER_HOUR = 30;
+
 export async function authRoutes(app: FastifyInstance) {
   const r = app.withTypeProvider<ZodTypeProvider>();
+  // Own limiter (lib/login-limiter.ts): @fastify/rate-limit runs one limiter per request, and login needs two windows.
+  const checkLogin = createLoginLimiter((app as unknown as { redis?: Redis }).redis,
+    { pairMax: 5, pairWindowMs: 60_000, accountMax: LOGIN_ACCOUNT_MAX_PER_HOUR, accountWindowMs: 3_600_000 });
 
   r.post("/auth/login", {
-    // 5 attempts per minute per (email, IP) pair; the global limit per IP (100/min) still applies on top.
-    config: { rateLimit: { max: 5, timeWindow: "1 minute", hook: "preHandler", keyGenerator: (req) => loginRateKey((req.body as { email?: string } | undefined)?.email, req.ip) } },
+    // 5 attempts per minute per (email, IP) pair, plus a soft cap of 30 per hour per account across all IPs; both fail closed if Redis is down.
+    preHandler: async (req) => { await checkLogin((req.body as { email?: string } | undefined)?.email, req.ip); },
     schema: { tags: ["auth"], body: z.object({ email: z.string().email().max(254), password: z.string().min(8).max(200) }) },
   }, async (req, reply) => {
     const user = await usersRepo.byEmail(req.body.email);

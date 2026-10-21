@@ -41,7 +41,9 @@ export async function buildApp(opts: { logStream?: { write(line: string): void }
   // only correct while the service runs ONE API instance (each instance would count separately). See SECURITY.md.
   const redis = env.REDIS_URL ? new Redis(env.REDIS_URL, { connectTimeout: 500, maxRetriesPerRequest: 1 }) : undefined;
   if (redis) app.addHook("onClose", async () => { await redis.quit(); });
-  await app.register(rateLimit, { max: env.RATE_LIMIT_MAX, timeWindow: "1 minute", nameSpace: "rl:", ...(redis ? { redis } : {}) });
+  // skipOnError: if Redis is down, ordinary routes keep serving (fail open); the login route overrides this and fails closed.
+  await app.register(rateLimit, { max: env.RATE_LIMIT_MAX, timeWindow: "1 minute", nameSpace: "rl:", skipOnError: true, ...(redis ? { redis } : {}) });
+  app.decorate("redis", redis);
   await app.register(swagger, { openapi: { info: { title: "OctavoLab app template API", version: "1.0.0" }, components: { securitySchemes: { session: { type: "apiKey", in: "cookie", name: "sid" } } } }, transform: jsonSchemaTransform });
 
   app.addHook("onSend", async (req, reply) => { reply.header("x-request-id", req.id); });

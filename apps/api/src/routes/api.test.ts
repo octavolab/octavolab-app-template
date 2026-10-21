@@ -155,6 +155,34 @@ describe("API: auth, tenancy, idempotency, webhooks", () => {
     expect((await attempt("10.0.0.2")).statusCode).toBe(401);
   });
 
+  it("caps login attempts per account across rotating IPs (distributed guessing gets 429)", async () => {
+    const attempt = (ip: string) => app.inject({ method: "POST", url: "/api/v1/auth/login", headers: { "x-forwarded-for": ip }, payload: { email: "spray@a.co", password: "wrong-password-x" } });
+    const codes: number[] = [];
+    for (let i = 0; i < 31; i++) codes.push((await attempt(`10.1.${Math.floor(i / 4)}.${i % 4}`)).statusCode);
+    expect(codes.slice(0, 30).every((c) => c === 401)).toBe(true);
+    expect(codes[30]).toBe(429);
+    // Another account is unaffected.
+    expect((await app.inject({ method: "POST", url: "/api/v1/auth/login", headers: { "x-forwarded-for": "10.9.9.9" }, payload: { email: "other@a.co", password: "wrong-password-x" } })).statusCode).toBe(401);
+  });
+
+  it("audits a succeeded payment that arrives while the order is not payable (draft), instead of dropping it", async () => {
+    const o = db.orders[0];
+    const prev = o.status; o.status = "draft";
+    const body = JSON.stringify({ id: "evt_draft_1", type: "payment_intent.succeeded", data: { object: { status: "succeeded", amount: o.totalAmount, amount_received: o.totalAmount, currency: o.currency.toLowerCase(), metadata: { orderId: o.id } } } });
+    const t = Math.floor(Date.now() / 1000);
+    const sig = `t=${t},v1=${createHmac("sha256", "whsec_test").update(`${t}.${body}`).digest("hex")}`;
+    const r = await app.inject({ method: "POST", url: "/api/v1/webhooks/payments", headers: { "content-type": "application/json", "stripe-signature": sig }, payload: body });
+    expect(r.statusCode).toBe(200);
+    expect(o.status).toBe("draft");
+    expect(db.audit.some((a: any) => a.action === "payment_unapplied" && a.entityId === o.id)).toBe(true);
+    o.status = prev;
+  });
+
+  it("health reports redis as not_configured when REDIS_URL is unset", async () => {
+    const r = await app.inject({ method: "GET", url: "/api/health" });
+    expect(r.json().deps.redis).toBe("not_configured");
+  });
+
   it("verifies webhook signatures, deduplicates events and moves the order to paid exactly once", async () => {
     const o = db.orders[0];
     o.status = "confirmed";
