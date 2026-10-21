@@ -21,7 +21,6 @@ ALTER TABLE "Order" ALTER COLUMN "tenantId" SET NOT NULL;
 -- AddForeignKey (Prisma default for a required relation)
 ALTER TABLE "Order" ADD CONSTRAINT "Order_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- AlterTable: existing keys get an empty hash, which never matches a real request hash, so replaying a key created
--- before this migration returns 422 instead of a possibly different stored response.
+-- AlterTable: existing keys (and keys written by the previous app version during a rollback) get an empty hash, which
+-- never matches a real request hash, so replaying such a key returns 422 instead of a possibly different stored response.
 ALTER TABLE "IdempotencyKey" ADD COLUMN "requestHash" TEXT NOT NULL DEFAULT '';
-ALTER TABLE "IdempotencyKey" ALTER COLUMN "requestHash" DROP DEFAULT;

@@ -67,7 +67,7 @@ model Outbox {
 
 model IdempotencyKey {
   key         String   @id // "<tenantId>:<client key>"
-  requestHash String   // sha256 of the canonical JSON of the operation and its input; a different body with the same key is rejected (422)
+  requestHash String   @default("") // sha256 of the canonical JSON of the operation and its input; a different body with the same key is rejected (422). The "" default keeps the previous app version's inserts working during a rollback; "" never matches a real hash.
   response    String
   createdAt DateTime @default(now())
 }
