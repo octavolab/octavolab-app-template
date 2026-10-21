@@ -7,19 +7,24 @@ import { env } from "../config/env.js";
  * Outbox dispatcher: at-least-once delivery. Rows are claimed with FOR UPDATE SKIP LOCKED plus a 60 s lease so two
  * workers never send the same event; failures back off exponentially (5 s x 2^attempts). Each event type has an
  * explicit handler; an unknown type is a failure (lastError set, never marked delivered). After MAX_ATTEMPTS the event
- * is dead-lettered (deadLetteredAt) and an `outbox_dead_letter` error line is logged for alerting.
+ * is dead-lettered (deadLetteredAt) and an `outbox_dead_letter` error line is logged for alerting. An error that says it
+ * cannot succeed on retry (`retryable === false`, e.g. MessagingError for an invalid recipient) is dead-lettered at once.
+ * Handlers receive the event id so providers can deduplicate retries (`outbox:<id>` as the provider idempotency key).
  * Runs as the `worker` container (infra/lightsail.json).
  */
 export const MAX_ATTEMPTS = 8;
 
 export type OutboxEvent = { id: string; type: string; payload: unknown; attempts: number };
 export type HandlerDeps = { messaging: () => MessagingProvider; opsEmail: string };
-export type Handler = (payload: Record<string, unknown>, deps: HandlerDeps) => Promise<void>;
+export type Handler = (payload: Record<string, unknown>, deps: HandlerDeps, meta: { eventId: string }) => Promise<void>;
 type Log = { info(o: object, msg: string): void; warn(o: object, msg: string): void; error(o: object, msg: string): void };
 
-const notifyOps = (template: string): Handler => async (payload, d) => {
-  await d.messaging().send({ to: d.opsEmail, template, data: payload });
+const notifyOps = (template: string): Handler => async (payload, d, meta) => {
+  await d.messaging().send({ to: d.opsEmail, template, data: payload, idempotencyKey: `outbox:${meta.eventId}` });
 };
+
+/** True only when the error explicitly says a retry cannot help (MessagingError.retryable === false). */
+const isPermanent = (err: unknown) => typeof err === "object" && err !== null && (err as { retryable?: unknown }).retryable === false;
 
 export const handlers: Readonly<Record<string, Handler>> = {
   "order.created": notifyOps("order_created"),
@@ -45,15 +50,16 @@ export async function dispatchOnce(deps: WorkerDeps = defaultDeps()) {
     try {
       const handler = deps.handlers[ev.type];
       if (!handler) throw new Error(`no handler for outbox event type "${ev.type}"`);
-      await handler((ev.payload ?? {}) as Record<string, unknown>, deps);
+      await handler((ev.payload ?? {}) as Record<string, unknown>, deps, { eventId: ev.id });
       await deps.db.outbox.update({ where: { id: ev.id }, data: { deliveredAt: deps.now(), attempts: { increment: 1 }, lastError: null } });
       result.delivered++;
     } catch (err) {
       const attempts = ev.attempts + 1;
       const lastError = String(err instanceof Error ? err.message : err).slice(0, 1000);
-      if (attempts >= MAX_ATTEMPTS) {
+      const permanent = isPermanent(err);
+      if (attempts >= MAX_ATTEMPTS || permanent) {
         await deps.db.outbox.update({ where: { id: ev.id }, data: { attempts: { increment: 1 }, lastError, deadLetteredAt: deps.now(), lockedUntil: null } });
-        deps.log.error({ event: "outbox_dead_letter", metric: "outbox_dead_letter_total", outboxId: ev.id, type: ev.type, attempts, lastError }, "outbox event dead-lettered");
+        deps.log.error({ event: "outbox_dead_letter", metric: "outbox_dead_letter_total", outboxId: ev.id, type: ev.type, attempts, permanent, lastError }, "outbox event dead-lettered");
         result.deadLettered++;
       } else {
         await deps.db.outbox.update({ where: { id: ev.id }, data: { attempts: { increment: 1 }, lastError, lockedUntil: new Date(deps.now().getTime() + 5000 * 2 ** ev.attempts) } });

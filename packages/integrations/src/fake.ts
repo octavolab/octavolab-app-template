@@ -1,4 +1,4 @@
-import type { PaymentGateway, CarrierRates, MessagingProvider, Money } from "./contracts.js";
+import type { PaymentGateway, CarrierRates, MessagingProvider, MessageInput, Money } from "./contracts.js";
 /** Fake adapters: used in demos, tests and local dev. Never in production (N51). */
 export class FakePayments implements PaymentGateway {
   name = "fake-payments";
@@ -17,5 +17,5 @@ export class FakeCarrier implements CarrierRates {
 }
 export class FakeMessaging implements MessagingProvider {
   name = "fake-messaging";
-  async send(_i: { to: string; template: string; data: Record<string, unknown> }) { return { providerRef: `fake_msg_${Date.now()}` }; }
+  async send(_i: MessageInput) { return { providerRef: `fake_msg_${Date.now()}` }; }
 }

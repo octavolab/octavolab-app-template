@@ -15,9 +15,29 @@ export interface CarrierRates {
   quote(input: { from: string; to: string; weightKg: number; volumetricKg: number }): Promise<{ carrier: string; service: string; money: Money; etaDays?: number }[]>;
 }
 
+export type MessageInput = {
+  to: string;
+  template: string;
+  data: Record<string, unknown>;
+  /** Provider-side deduplication (e.g. `outbox:<eventId>`): a retried send with the same key is not delivered twice. */
+  idempotencyKey?: string | undefined;
+};
+
 export interface MessagingProvider {
   readonly name: string;
-  send(input: { to: string; template: string; data: Record<string, unknown> }): Promise<{ providerRef: string }>;
+  send(input: MessageInput): Promise<{ providerRef: string }>;
+}
+
+/**
+ * A failed send. `retryable` tells the caller (the outbox worker) whether trying again can help: false means the request
+ * itself is wrong (invalid recipient, unknown template, idempotency conflict) and the event should be dead-lettered now.
+ * The message never contains the API key, the recipient or the provider's free-text error (which can echo the address).
+ */
+export class MessagingError extends Error {
+  constructor(message: string, public readonly code: string, public readonly retryable: boolean, public readonly status?: number) {
+    super(message);
+    this.name = "MessagingError";
+  }
 }
 
 export async function withRetry<T>(fn: () => Promise<T>, attempts = 3, baseMs = 300): Promise<T> {

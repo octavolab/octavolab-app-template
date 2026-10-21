@@ -28,4 +28,23 @@ describe("environment schema", () => {
     const { OPS_EMAIL: _omit, ...rest } = base;
     expect(parseEnv(rest).success).toBe(false);
   });
+
+  it("requires RESEND_API_KEY and MESSAGING_FROM only when MESSAGING_PROVIDER=resend in sandbox or live mode", () => {
+    const resend = { ...base, MESSAGING_PROVIDER: "resend" };
+    expect(parseEnv({ ...resend }).success).toBe(true); // fake mode: the fake adapter is used, nothing required
+    for (const mode of ["sandbox", "live"]) {
+      const missing = parseEnv({ ...resend, INTEGRATIONS_MODE: mode });
+      expect(Object.keys(missing.error?.flatten().fieldErrors ?? {}).sort()).toEqual(["MESSAGING_FROM", "RESEND_API_KEY"]);
+      expect(parseEnv({ ...resend, INTEGRATIONS_MODE: mode, RESEND_API_KEY: "re_abc_123", MESSAGING_FROM: "OctavoLab <noreply@example.com>" }).success).toBe(true);
+    }
+    expect(parseEnv({ ...base, INTEGRATIONS_MODE: "live" }).success).toBe(true); // provider fake: not required
+  });
+
+  it("validates the Resend key and sender format without echoing the value", () => {
+    const r = parseEnv({ ...base, MESSAGING_PROVIDER: "resend", INTEGRATIONS_MODE: "live", RESEND_API_KEY: "sk_live_secret_value", MESSAGING_FROM: "noreply@example.com\r\nBcc: x@y.co" });
+    const errs = r.error?.flatten().fieldErrors ?? {};
+    expect(Object.keys(errs).sort()).toEqual(["MESSAGING_FROM", "RESEND_API_KEY"]);
+    expect(JSON.stringify(errs)).not.toContain("sk_live_secret_value");
+    expect(parseEnv({ ...base, MESSAGING_FROM: "noreply@example.com" }).success).toBe(true);
+  });
 });

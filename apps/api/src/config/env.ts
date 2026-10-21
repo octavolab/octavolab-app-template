@@ -20,10 +20,20 @@ export const envSchema = z
     PAYMENTS_PROVIDER: z.enum(["fake", "stripe", "wompi", "payu", "mercadopago"]).default("fake"),
     CARRIER_PROVIDER: z.enum(["fake", "oes"]).default("fake"),
     MESSAGING_PROVIDER: z.enum(["fake", "resend", "ses", "twilio"]).default("fake"),
+    // Resend (MESSAGING_PROVIDER=resend): required only when the provider is resend AND the mode is sandbox or live.
+    RESEND_API_KEY: z.string().regex(/^re_[A-Za-z0-9_]+$/, "must be a Resend API key (re_...)").optional(),
+    // Sender: "noreply@domain" or "Name <noreply@domain>"; the domain must be verified in Resend (live).
+    MESSAGING_FROM: z.string().max(320).regex(/^(?:[^<>\r\n]{1,100} <[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>|[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+)$/, "must be an email or 'Name <email>'").optional(),
   })
   .superRefine((e, ctx) => {
     if (e.NODE_ENV === "production" && !e.INTEGRATIONS_MODE) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["INTEGRATIONS_MODE"], message: "must be set explicitly in production (fake | sandbox | live); it never defaults to fake" });
+    }
+    const realMode = e.INTEGRATIONS_MODE === "sandbox" || e.INTEGRATIONS_MODE === "live";
+    if (e.MESSAGING_PROVIDER === "resend" && realMode) {
+      for (const k of ["RESEND_API_KEY", "MESSAGING_FROM"] as const) {
+        if (!e[k]) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [k], message: "required when MESSAGING_PROVIDER=resend and INTEGRATIONS_MODE is sandbox or live" });
+      }
     }
   })
   .transform((e) => ({ ...e, INTEGRATIONS_MODE: e.INTEGRATIONS_MODE ?? ("fake" as const) }));
@@ -37,6 +47,7 @@ export function parseEnv(source: Record<string, string | undefined>) {
 const parsed = parseEnv(process.env);
 if (!parsed.success) {
   // Fail fast: a misconfigured service must not start.
+  // Field names and messages only: zod messages never contain the submitted values, so no secret reaches the log.
   console.error("Invalid environment:", parsed.error.flatten().fieldErrors);
   process.exit(1);
 }
