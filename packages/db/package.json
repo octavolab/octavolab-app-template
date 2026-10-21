@@ -7,11 +7,11 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "generate": "prisma generate",
-    "migrate": "prisma migrate deploy",
-    "migrate:dev": "prisma migrate dev",
-    "seed": "tsx prisma/seed.ts",
+    "migrate": "dotenv -e ../../.env -- prisma migrate deploy",
+    "migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
+    "seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
     "typecheck": "tsc --noEmit",
-    "test": "echo \"db: schema validated by prisma validate\" && prisma validate",
+    "test": "echo \"db: schema validated by prisma validate\" && dotenv -e ../../.env -- prisma validate",
     "build": "prisma generate && tsc -p tsconfig.build.json",
     "validate:sql": "node scripts/validate-migrations.mjs"
   },

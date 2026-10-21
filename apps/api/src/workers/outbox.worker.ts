@@ -65,7 +65,7 @@ export async function dispatchOnce(deps: WorkerDeps = defaultDeps()) {
   return result;
 }
 
-if (process.argv[1]?.endsWith("outbox.worker.js")) {
+if (/outbox\.worker\.(js|ts)$/.test(process.argv[1] ?? "")) {
   const deps = defaultDeps();
   const loop = async () => { await dispatchOnce(deps).catch((e) => deps.log.error({ event: "outbox_loop_error", error: String(e) }, "outbox loop error")); setTimeout(loop, 2000); };
   void loop();
