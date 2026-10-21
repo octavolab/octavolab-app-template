@@ -3,7 +3,7 @@ export type Money = { amount: number; currency: string };
 
 export interface PaymentGateway {
   readonly name: string;
-  createPaymentIntent(input: { orderId: string; money: Money; idempotencyKey: string }): Promise<{ providerRef: string; clientSecret?: string }>;
+  createPaymentIntent(input: { orderId: string; money: Money; idempotencyKey: string }): Promise<{ providerRef: string; clientSecret?: string | undefined }>;
   verifyWebhook(rawBody: string, signature: string): Promise<{ eventId: string; type: string; data: unknown }>;
   refund(input: { providerRef: string; money: Money; idempotencyKey: string }): Promise<{ providerRef: string }>;
 }
