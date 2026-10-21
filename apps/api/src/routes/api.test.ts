@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeAll, vi } from "vitest";
 import { createHmac } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import argon2 from "argon2";
 
 // Environment must be set before the app (and its env schema) is imported.
 Object.assign(process.env, {
-  NODE_ENV: "test", DATABASE_URL: "postgresql://x:y@localhost:5432/z", SESSION_SECRET: "s".repeat(40), APP_URL: "http://localhost:5173", OPS_EMAIL: "ops@test.invalid",
+  NODE_ENV: "test", DATABASE_URL: "postgresql://x:y@localhost:5432/z", SESSION_SECRET: "s".repeat(40), APP_URL: "http://localhost:5173", OPS_EMAIL: "ops@test.invalid", RATE_LIMIT_MAX: "1000",
   INTEGRATIONS_MODE: "sandbox", PAYMENTS_PROVIDER: "stripe", STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_test",
 });
 
@@ -34,6 +37,7 @@ vi.mock("@octavolab/db", () => {
       updateMany: async ({ where, data }: any) => {
         const o = db.orders.find((x) => x.id === where.id && x.version === where.version && where.status.in.includes(x.status));
         if (!o) return { count: 0 };
+        if (data.paymentIntentId) { if (db.orders.some((x) => x.paymentIntentId === data.paymentIntentId)) throw new PrismaClientKnownRequestError("P2002"); o.paymentIntentId = data.paymentIntentId; }
         o.status = data.status; o.version += 1; return { count: 1 };
       },
     },
@@ -58,9 +62,19 @@ vi.mock("@octavolab/db", () => {
   return { prisma, Prisma: { PrismaClientKnownRequestError } };
 });
 
+// Stripe API stand-in (sandbox mode uses the real StripeGateway): honours Idempotency-Key like Stripe does.
+const stripe = vi.hoisted(() => ({ calls: [] as { method: string; url: string; body: URLSearchParams | null; key: string | undefined }[], byKey: new Map<string, string>() }));
+vi.stubGlobal("fetch", async (url: string, init: any) => {
+  const key = init.headers["Idempotency-Key"];
+  stripe.calls.push({ method: init.method, url, body: init.body ? new URLSearchParams(String(init.body)) : null, key });
+  let id = url.split("/").pop()!;
+  if (init.method === "POST") { id = (key && stripe.byKey.get(key)) ?? `pi_test_${stripe.byKey.size + 1}`; if (key) stripe.byKey.set(key, id); }
+  return new Response(JSON.stringify({ id, client_secret: `${id}_secret_abc`, status: "requires_payment_method" }), { status: 200 });
+});
+
 let app: any;
 let buildApp: any;
-const cookieOf = (res: any) => String(res.headers["set-cookie"]).split(";")[0];
+const cookieOf = (res: any): string => String(res.headers["set-cookie"]).split(";")[0] ?? "";
 
 beforeAll(async () => {
   db.users.push(
@@ -144,7 +158,7 @@ describe("API: auth, tenancy, idempotency, webhooks", () => {
   it("verifies webhook signatures, deduplicates events and moves the order to paid exactly once", async () => {
     const o = db.orders[0];
     o.status = "confirmed";
-    const body = JSON.stringify({ id: "evt_1", type: "payment_intent.succeeded", data: { object: { amount: o.totalAmount, currency: "usd", metadata: { orderId: o.id } } } });
+    const body = JSON.stringify({ id: "evt_1", type: "payment_intent.succeeded", data: { object: { status: "succeeded", amount: o.totalAmount, amount_received: o.totalAmount, currency: "usd", metadata: { orderId: o.id } } } });
     const t = Math.floor(Date.now() / 1000);
     const sig = `t=${t},v1=${createHmac("sha256", "whsec_test").update(`${t}.${body}`).digest("hex")}`;
     const post = (s: string) => app.inject({ method: "POST", url: "/api/v1/webhooks/payments", headers: { "content-type": "application/json", "stripe-signature": s }, payload: body });
@@ -162,7 +176,7 @@ describe("API: auth, tenancy, idempotency, webhooks", () => {
   it("does not mark an order paid when amount or currency differ, and audits the mismatch", async () => {
     const o = db.orders[0];
     o.status = "confirmed";
-    const body = JSON.stringify({ id: "evt_2", type: "payment_intent.succeeded", data: { object: { amount: 1, currency: "usd", metadata: { orderId: o.id } } } });
+    const body = JSON.stringify({ id: "evt_2", type: "payment_intent.succeeded", data: { object: { status: "succeeded", amount: 1, amount_received: 1, currency: "usd", metadata: { orderId: o.id } } } });
     const t = Math.floor(Date.now() / 1000);
     const sig = `t=${t},v1=${createHmac("sha256", "whsec_test").update(`${t}.${body}`).digest("hex")}`;
     const r = await app.inject({ method: "POST", url: "/api/v1/webhooks/payments", headers: { "content-type": "application/json", "stripe-signature": sig }, payload: body });
@@ -174,7 +188,7 @@ describe("API: auth, tenancy, idempotency, webhooks", () => {
   it("rolls back the event record when the transaction fails, so the provider retry is processed", async () => {
     const o = db.orders[0];
     o.status = "confirmed";
-    const body = JSON.stringify({ id: "evt_3", type: "payment_intent.succeeded", data: { object: { amount: o.totalAmount, currency: "usd", metadata: { orderId: o.id } } } });
+    const body = JSON.stringify({ id: "evt_3", type: "payment_intent.succeeded", data: { object: { status: "succeeded", amount: o.totalAmount, amount_received: o.totalAmount, currency: "usd", metadata: { orderId: o.id } } } });
     const t = Math.floor(Date.now() / 1000);
     const sig = `t=${t},v1=${createHmac("sha256", "whsec_test").update(`${t}.${body}`).digest("hex")}`;
     db.failNextOutbox = true;
@@ -253,5 +267,100 @@ describe("sessions: server-side revocation, audit and security logs", () => {
     expect(bad.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
     const long = await app.inject({ method: "GET", url: "/api/health", headers: { "x-request-id": "a".repeat(65) } });
     expect(long.headers["x-request-id"]).not.toBe("a".repeat(65));
+  });
+});
+
+const signed = (event: object) => {
+  const body = JSON.stringify(event);
+  const t = Math.floor(Date.now() / 1000);
+  return { body, sig: `t=${t},v1=${createHmac("sha256", "whsec_test").update(`${t}.${body}`).digest("hex")}` };
+};
+const postWebhook = (event: object) => { const { body, sig } = signed(event); return app.inject({ method: "POST", url: "/api/v1/webhooks/payments", headers: { "content-type": "application/json", "stripe-signature": sig }, payload: body }); };
+
+describe("checkout: draft -> pending_payment -> paid", () => {
+  let admin: string; let orderId: string;
+  const checkout = (id: string, key: string, cookie = admin) => app.inject({ method: "POST", url: `/api/v1/orders/${id}/checkout`, headers: { cookie, "idempotency-key": key } });
+
+  beforeAll(async () => {
+    admin = cookieOf(await login("admin@a.co", "correct-horse-1"));
+    const created = await app.inject({ method: "POST", url: "/api/v1/orders", headers: { cookie: admin, "idempotency-key": "k-checkout-order-1" }, payload: { customerEmail: "p@y.co", currency: "GBP", items: [{ sku: "C", qty: 3, unitAmount: 1999 }] } });
+    orderId = created.json().id;
+    stripe.calls.length = 0;
+  });
+
+  it("moves a draft order to pending_payment and creates one provider intent in integer minor units", async () => {
+    const r = await checkout(orderId, "k-pay-00000001");
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ orderId, status: "pending_payment", paymentIntentId: "pi_test_1", amount: 5997, currency: "GBP", clientSecret: "pi_test_1_secret_abc" });
+    const o = db.orders.find((x) => x.id === orderId);
+    expect([o.status, o.paymentIntentId]).toEqual(["pending_payment", "pi_test_1"]);
+    const create = stripe.calls.filter((c) => c.method === "POST");
+    expect(create.length).toBe(1);
+    expect([create[0]!.body!.get("amount"), create[0]!.body!.get("currency"), create[0]!.body!.get("metadata[orderId]"), create[0]!.key]).toEqual(["5997", "gbp", orderId, `checkout:${orderId}`]);
+    expect(db.audit.some((a) => a.action === "checkout_started" && a.entityId === orderId)).toBe(true);
+    expect([...db.keys.values()].some((k) => k.response.includes("secret"))).toBe(false); // the client secret is never stored
+  });
+
+  it("is idempotent: same key replays, a new key resumes the same intent, another body is rejected", async () => {
+    const replay = await checkout(orderId, "k-pay-00000001");
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().paymentIntentId).toBe("pi_test_1");
+    expect(replay.json().clientSecret).toBe("pi_test_1_secret_abc");
+    const resumed = await checkout(orderId, "k-pay-00000002");
+    expect(resumed.json().paymentIntentId).toBe("pi_test_1");
+    expect(stripe.calls.filter((c) => c.method === "POST").length).toBe(1); // no second intent
+    const mismatch = await checkout(db.orders[0].id, "k-pay-00000001");
+    expect(mismatch.statusCode).toBe(422);
+    expect(mismatch.json().code).toBe("IDEMPOTENCY_MISMATCH");
+  });
+
+  it("is tenant-scoped and staff-only, and refuses orders that cannot start checkout", async () => {
+    const b = cookieOf(await login("b@b.co", "correct-horse-3"));
+    expect((await checkout(orderId, "k-pay-other-tenant", b)).statusCode).toBe(404);
+    const c = cookieOf(await login("c@a.co", "correct-horse-2"));
+    expect((await checkout(orderId, "k-pay-customer-1", c)).statusCode).toBe(403);
+    const n = cookieOf(await login("none@x.co", "correct-horse-7"));
+    expect((await checkout(orderId, "k-pay-no-tenant", n)).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `/api/v1/orders/${orderId}/checkout`, headers: { cookie: admin } })).statusCode).toBe(400); // Idempotency-Key required
+    expect((await app.inject({ method: "POST", url: `/api/v1/orders/${orderId}/checkout`, headers: { "idempotency-key": "k-pay-anon-001" } })).statusCode).toBe(401);
+    const paid = db.orders[0]; // paid by the webhook tests above
+    expect(paid.status).toBe("paid");
+    const r = await checkout(paid.id, "k-pay-paid-0001");
+    expect(r.statusCode).toBe(409);
+    expect(r.json().code).toBe("INVALID_STATE");
+  });
+
+  it("the webhook ignores an intent that is not succeeded, not fully received, or not the order's intent", async () => {
+    const o = db.orders.find((x) => x.id === orderId);
+    const base = { status: "succeeded", id: "pi_test_1", amount: 5997, amount_received: 5997, currency: "gbp", metadata: { orderId } };
+    for (const [i, override] of [{ status: "processing" }, { amount_received: 100 }, { id: "pi_someone_else" }, { currency: "usd" }].entries()) {
+      const r = await postWebhook({ id: `evt_chk_bad_${i}`, type: "payment_intent.succeeded", data: { object: { ...base, ...override } } });
+      expect(r.statusCode).toBe(200);
+      expect(o.status).toBe("pending_payment");
+    }
+    expect(db.audit.filter((a) => a.action === "payment_mismatch" && a.entityId === orderId).length).toBe(4);
+  });
+
+  it("the signed webhook moves pending_payment -> paid exactly once", async () => {
+    const o = db.orders.find((x) => x.id === orderId);
+    const event = { id: "evt_chk_ok", type: "payment_intent.succeeded", data: { object: { id: "pi_test_1", status: "succeeded", amount: 5997, amount_received: 5997, currency: "gbp", metadata: { orderId } } } };
+    expect((await postWebhook(event)).statusCode).toBe(200);
+    expect(o.status).toBe("paid");
+    expect((await postWebhook(event)).json().duplicate).toBe(true);
+    expect(db.outbox.filter((e) => e.type === "order.paid" && e.payload.orderId === orderId).length).toBe(1);
+  });
+});
+
+describe("OpenAPI", () => {
+  it("documents the checkout endpoint and docs/openapi.json is up to date (UPDATE_OPENAPI=1 regenerates it)", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/openapi.json" });
+    expect(res.statusCode).toBe(200);
+    const spec = res.json();
+    expect(spec.paths["/api/v1/orders/{id}/checkout"].post.summary).toMatch(/pending_payment/);
+    expect(spec.paths["/api/v1/users/{id}/role"].patch).toBeDefined();
+    const file = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../docs/openapi.json");
+    const text = `${JSON.stringify(spec, null, 2)}\n`;
+    if (process.env.UPDATE_OPENAPI === "1") writeFileSync(file, text);
+    expect(readFileSync(file, "utf8")).toBe(text);
   });
 });

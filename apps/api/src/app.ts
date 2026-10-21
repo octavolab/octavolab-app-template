@@ -41,8 +41,8 @@ export async function buildApp(opts: { logStream?: { write(line: string): void }
   // only correct while the service runs ONE API instance (each instance would count separately). See SECURITY.md.
   const redis = env.REDIS_URL ? new Redis(env.REDIS_URL, { connectTimeout: 500, maxRetriesPerRequest: 1 }) : undefined;
   if (redis) app.addHook("onClose", async () => { await redis.quit(); });
-  await app.register(rateLimit, { max: 100, timeWindow: "1 minute", nameSpace: "rl:", ...(redis ? { redis } : {}) });
-  await app.register(swagger, { openapi: { info: { title: "API", version: "1.0.0" } }, transform: jsonSchemaTransform });
+  await app.register(rateLimit, { max: env.RATE_LIMIT_MAX, timeWindow: "1 minute", nameSpace: "rl:", ...(redis ? { redis } : {}) });
+  await app.register(swagger, { openapi: { info: { title: "OctavoLab app template API", version: "1.0.0" }, components: { securitySchemes: { session: { type: "apiKey", in: "cookie", name: "sid" } } } }, transform: jsonSchemaTransform });
 
   app.addHook("onSend", async (req, reply) => { reply.header("x-request-id", req.id); });
 
@@ -63,6 +63,8 @@ export async function buildApp(opts: { logStream?: { write(line: string): void }
   await app.register(orderRoutes, { prefix: "/api/v1" });
   await app.register(userRoutes, { prefix: "/api/v1" });
   await app.register(webhookRoutes, { prefix: "/api/v1" });
+  // OpenAPI 3 document generated from the zod route schemas; the committed copy is docs/openapi.json (kept in sync by a test).
+  if (env.NODE_ENV !== "production") app.get("/api/openapi.json", { schema: { hide: true } }, async () => app.swagger());
   await app.register(fastifyStatic, { root: path.resolve(process.cwd(), "apps/web/dist"), wildcard: false });
   app.setNotFoundHandler((req, reply) => req.url.startsWith("/api") ? reply.code(404).send({ code: "NOT_FOUND", message: "route not found", requestId: req.id }) : reply.sendFile("index.html"));
   return app;

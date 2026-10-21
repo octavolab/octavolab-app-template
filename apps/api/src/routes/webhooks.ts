@@ -24,7 +24,8 @@ export async function webhookRoutes(app: FastifyInstance) {
       throw new AppError("BAD_SIGNATURE", "Invalid webhook signature", 400);
     }
 
-    const obj = (event.data as { object?: { amount?: number; currency?: string; metadata?: { orderId?: string } } })?.object;
+    type IntentObject = { id?: string; status?: string; amount?: number; amount_received?: number; currency?: string; metadata?: { orderId?: string } };
+    const obj = (event.data as { object?: IntentObject } | undefined)?.object;
     const isPaid = event.type === "payment_intent.succeeded" || event.type === "payment.succeeded";
 
     // Event record, state change, audit and outbox commit together: if anything fails, nothing is recorded and the
@@ -35,9 +36,17 @@ export async function webhookRoutes(app: FastifyInstance) {
         if (!isPaid || !obj?.metadata?.orderId) return;
         const order = await tx.order.findUnique({ where: { id: obj.metadata.orderId } });
         if (!order) return;
-        const amountOk = obj.amount === order.totalAmount && String(obj.currency ?? "").toUpperCase() === order.currency;
+        // Paid only if the provider says the intent succeeded AND the amount actually received, the amount and the currency
+        // match the order, AND (when checkout stored one) it is the intent created for this order.
+        const amountOk = obj.status === "succeeded"
+          && obj.amount_received === order.totalAmount
+          && (obj.amount === undefined || obj.amount === order.totalAmount)
+          && String(obj.currency ?? "").toUpperCase() === order.currency
+          && (!order.paymentIntentId || obj.id === order.paymentIntentId);
         if (!amountOk) {
-          await tx.auditLog.create({ data: { entity: "Order", entityId: order.id, action: "payment_mismatch", actor: `webhook:${event.eventId}`, after: { amount: obj.amount ?? null, currency: obj.currency ?? null, expected: { amount: order.totalAmount, currency: order.currency } } } });
+          await tx.auditLog.create({ data: { entity: "Order", entityId: order.id, action: "payment_mismatch", actor: `webhook:${event.eventId}`,
+            after: { intent: obj.id ?? null, status: obj.status ?? null, amount: obj.amount ?? null, amountReceived: obj.amount_received ?? null, currency: obj.currency ?? null,
+              expected: { intent: order.paymentIntentId ?? null, amount: order.totalAmount, currency: order.currency } } } });
           return;
         }
         const moved = await ordersRepo.transition(tx, order.id, sourcesOf("paid"), "paid", order.version);

@@ -8,6 +8,8 @@ export const envSchema = z
     // Optional: when set, rate-limit counters live in Redis (shared by every API instance). When unset they live in
     // process memory, which is only correct for a single API instance (see SECURITY.md).
     REDIS_URL: z.string().url().optional(),
+    // Global requests per minute per client IP (the login route has its own, stricter limit).
+    RATE_LIMIT_MAX: z.coerce.number().int().min(10).max(100_000).default(100),
     SESSION_SECRET: z.string().min(32),
     SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(1800),
     APP_URL: z.string().url(),

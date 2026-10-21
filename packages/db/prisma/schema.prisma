@@ -2,7 +2,7 @@ generator client { provider = "prisma-client-js" }
 datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
 
 enum Role { owner admin operations customer }
-enum OrderStatus { draft confirmed paid shipped delivered closed cancelled refunded }
+enum OrderStatus { draft confirmed pending_payment paid shipped delivered closed cancelled refunded }
 
 model Tenant {
   id        String   @id @default(cuid())
@@ -34,6 +34,7 @@ model Order {
   currency      String
   totalAmount   Int         // minor units
   status        OrderStatus @default(draft)
+  paymentIntentId String?   @unique // provider payment intent (e.g. Stripe pi_...), set by POST /orders/:id/checkout
   version       Int         @default(0) // optimistic locking
   items         OrderItem[]
   createdAt     DateTime    @default(now())
