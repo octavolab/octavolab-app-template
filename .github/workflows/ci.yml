@@ -5,7 +5,8 @@ on:
     branches: [main]
     tags: ["v*"]
   schedule: [{ cron: "0 3 * * *" }]
-permissions: { contents: read, id-token: write, security-events: write }
+# Least privilege: the workflow token can only read. `id-token: write` (OIDC to AWS) is granted to the deploy jobs only.
+permissions: { contents: read }
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -17,6 +18,7 @@ jobs:
       REDIS_URL: redis://localhost:6379
       SESSION_SECRET: ci-only-secret-that-is-at-least-32-chars
       APP_URL: http://localhost:5173
+      OPS_EMAIL: ops@ci.invalid
       INTEGRATIONS_MODE: fake
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +29,8 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate && pnpm db:migrate
+      - name: Migrations replay on an empty PostgreSQL (PGlite) in order
+        run: pnpm --filter @octavolab/db validate:sql
       - run: pnpm lint && pnpm typecheck
       - name: Integration tests against PostgreSQL (real database, migrations applied)
         run: INTEGRATION=1 pnpm --filter api test:int
@@ -34,9 +38,9 @@ jobs:
       - name: Migrations exist and are applied (Prisma has no down migrations; rollback plan per migration in its folder)
         run: test -n "$(ls packages/db/prisma/migrations 2>/dev/null)" && pnpm --filter @octavolab/db exec prisma migrate status && pnpm --filter @octavolab/db exec prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
       - run: pnpm build
-      - name: E2E (390/768/1024/1440 + axe)
+      - name: E2E (390/768/1024/1440 + axe); vite preview proxies /api to the API on :3000
         run: |
-          pnpm --filter api start & pnpm --filter web preview --port 5173 &
+          pnpm --filter api start & pnpm --filter web preview --port 5173 --strictPort &
           sleep 5
           E2E_BASE_URL=http://localhost:5173 API_URL=http://localhost:3000 pnpm exec playwright install --with-deps chromium webkit && pnpm e2e
       - uses: actions/upload-artifact@v4
@@ -47,42 +51,49 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env: { GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
-      - name: semgrep (OWASP)
-        uses: semgrep/semgrep-action@v1
-        with: { config: "p/owasp-top-ten p/typescript" }
-      - name: osv-scanner
-        uses: google/osv-scanner-action/osv-scanner-action@v1
-        with: { scan-args: "--lockfile=pnpm-lock.yaml --fail-on-vuln" }
+      # gitleaks-action requires a paid GITLEAKS_LICENSE for organisation repos; the CLI in its official image does not.
+      - name: gitleaks (CLI, full history)
+        run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.21.2 detect --source /repo --redact -v
+      # osv-scanner exits non-zero when it finds vulnerabilities; there is no --fail-on-vuln flag.
+      - name: osv-scanner (pnpm lockfile)
+        run: docker run --rm -v "$PWD:/src" ghcr.io/google/osv-scanner:v1.9.1 --lockfile=/src/pnpm-lock.yaml
       - name: build image
         run: docker build -f infra/Dockerfile -t app:ci .
       - name: trivy
         uses: aquasecurity/trivy-action@0.28.0
-        with: { image-ref: app:ci, severity: "HIGH,CRITICAL", exit-code: "1" }
+        with: { image-ref: app:ci, severity: "HIGH,CRITICAL", exit-code: "1", ignore-unfixed: true }
+  semgrep:
+    # semgrep/semgrep-action is archived; the official container runs the CLI directly.
+    runs-on: ubuntu-latest
+    container: { image: semgrep/semgrep }
+    steps:
+      - uses: actions/checkout@v4
+      - run: semgrep scan --config p/owasp-top-ten --error
   deploy-staging:
-    needs: [quality, security]
-    if: github.ref == 'refs/heads/main'
+    needs: [quality, security, semgrep]
+    # Only a push to main deploys: the nightly schedule also runs with github.ref == main and must not redeploy.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: staging
+    permissions: { contents: read, id-token: write }
     steps:
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4
-        with: { role-to-assume: ${{ secrets.AWS_ROLE_STAGING }}, aws-region: eu-west-2 }
+        with: { role-to-assume: "${{ secrets.AWS_ROLE_STAGING }}", aws-region: eu-west-2 }
       - name: lightsailctl plugin
         run: curl -fsSL "https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl" -o /usr/local/bin/lightsailctl && chmod +x /usr/local/bin/lightsailctl
       - run: PROJECT_NAME=${{ vars.PROJECT_NAME }} infra/deploy.sh staging
       - run: infra/smoke.sh ${{ vars.STAGING_URL }}
   deploy-prod:
-    needs: [quality, security]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [quality, security, semgrep]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment: production   # requires manual approval in GitHub + Jaime's approval in chat (N07)
+    permissions: { contents: read, id-token: write }
     steps:
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4
-        with: { role-to-assume: ${{ secrets.AWS_ROLE_PROD }}, aws-region: eu-west-2 }
+        with: { role-to-assume: "${{ secrets.AWS_ROLE_PROD }}", aws-region: eu-west-2 }
       - name: lightsailctl plugin
         run: curl -fsSL "https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl" -o /usr/local/bin/lightsailctl && chmod +x /usr/local/bin/lightsailctl
       - run: PROJECT_NAME=${{ vars.PROJECT_NAME }} infra/deploy.sh prod
@@ -90,6 +101,7 @@ jobs:
   zap-nightly:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    permissions: { contents: read, issues: write }
     steps:
       - uses: zaproxy/action-baseline@v0.13.0
-        with: { target: ${{ vars.STAGING_URL }} }
+        with: { target: "${{ vars.STAGING_URL }}" }

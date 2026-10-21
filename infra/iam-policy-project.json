@@ -2,28 +2,36 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "LightsailProjectServices",
+      "Sid": "ReadOnlyDiscovery",
       "Effect": "Allow",
       "Action": [
         "lightsail:GetContainerServices",
         "lightsail:GetContainerServiceDeployments",
-        "lightsail:GetContainerLog",
         "lightsail:GetContainerImages",
-        "lightsail:PushContainerImage",
-        "lightsail:RegisterContainerImage",
-        "lightsail:CreateContainerServiceDeployment",
-        "lightsail:UpdateContainerService",
+        "lightsail:GetContainerLog",
         "lightsail:GetContainerServiceMetricData",
+        "lightsail:GetContainerAPIMetadata",
         "lightsail:GetRelationalDatabase",
-        "lightsail:GetRelationalDatabaseSnapshots",
-        "lightsail:CreateRelationalDatabaseSnapshot",
-        "lightsail:GetBuckets",
-        "lightsail:GetCertificates",
-        "lightsail:GetRegions",
-        "lightsail:GetContainerServicePowers",
-        "lightsail:GetContainerAPIMetadata"
+        "lightsail:GetRelationalDatabaseSnapshots"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "RegistryLoginForImagePush",
+      "Effect": "Allow",
+      "Action": ["lightsail:CreateContainerServiceRegistryLogin"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "WriteOnlyProjectTaggedResources",
+      "Effect": "Allow",
+      "Action": [
+        "lightsail:RegisterContainerImage",
+        "lightsail:CreateContainerServiceDeployment",
+        "lightsail:CreateRelationalDatabaseSnapshot"
+      ],
+      "Resource": "*",
+      "Condition": { "StringEquals": { "aws:ResourceTag/project": "${PROJECT_NAME}" } }
     },
     {
       "Sid": "DenyDestructive",

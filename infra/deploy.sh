@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Deploy to AWS Lightsail Container Service. Usage: infra/deploy.sh staging|prod
-# Requires AWS_PROFILE=<project> with the project IAM user (Módulo C, 8.2). Production only with Jaime's approval (N07).
+# AWS credentials: short-lived, for the per-project deploy role (Módulo C, 8.2; see infra/README.md). In CI they come from
+# GitHub OIDC (aws-actions/configure-aws-credentials with role-to-assume); locally from `aws sso login` or
+# `aws sts assume-role` with MFA for the same role. No IAM user access keys. Production only with Jaime's approval (N07).
 set -euo pipefail
 ENV="${1:?staging|prod}"
 SERVICE="${LIGHTSAIL_SERVICE:-${PROJECT_NAME:?set PROJECT_NAME}-$ENV}"

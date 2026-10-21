@@ -12,17 +12,20 @@
     "seed": "tsx prisma/seed.ts",
     "typecheck": "tsc --noEmit",
     "test": "echo \"db: schema validated by prisma validate\" && prisma validate",
-    "build": "prisma generate && tsc -p tsconfig.build.json"
+    "build": "prisma generate && tsc -p tsconfig.build.json",
+    "validate:sql": "node scripts/validate-migrations.mjs"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
     "argon2": "^0.41.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.2.12",
+    "@types/node": "^22.7.5",
+    "dotenv-cli": "^7.4.2",
     "prisma": "^5.20.0",
     "tsx": "^4.19.1",
-    "typescript": "^5.6.3",
-    "@types/node": "^22.7.5"
+    "typescript": "^5.6.3"
   },
   "exports": {
     ".": {
