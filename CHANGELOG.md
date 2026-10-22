@@ -1,6 +1,15 @@
 # Changelog
 All notable changes to this project are documented here (Keep a Changelog, semver).
 
+## [0.7.4] - 2026-10-22
+
+### Security
+- `ProjectSecrets` in `infra/iam-policy-project.json` is scoped per environment (`${PROJECT_NAME}/${ENV_NAME}-*`): the staging deploy role can no longer read `<project>/prod`. One policy per environment (`infra/README.md`). The live AWS policy must be updated by Jaime before the production secret exists (N07).
+
+### Docs
+- `CLAUDE.md` points to kit `octavolab-core@7.4.0`.
+- LOGBOOK: smoke failure of run 39784069128 recorded (fixed by 573d10c) and the independent audit result.
+
 ## [0.7.3] - 2026-10-22
 
 ### Final audit follow-ups (48/50 with Cumplimiento at 4)

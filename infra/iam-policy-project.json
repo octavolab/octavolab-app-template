@@ -48,7 +48,7 @@
         "secretsmanager:CreateSecret",
         "secretsmanager:TagResource"
       ],
-      "Resource": "arn:aws:secretsmanager:*:*:secret:${PROJECT_NAME}/*"
+      "Resource": "arn:aws:secretsmanager:*:*:secret:${PROJECT_NAME}/${ENV_NAME}-*"
     },
     {
       "Sid": "DenyDestructive",

@@ -19,12 +19,14 @@ The role's trust policy must restrict `token.actions.githubusercontent.com:sub` 
 `repo:<org>/<repo>:environment:staging` for the staging role and `repo:<org>/<repo>:environment:production` for the production role.
 
 ## The permissions policy
-`iam-policy-project.json` contains the literal placeholder `${PROJECT_NAME}`. Substitute it before creating the policy:
+`iam-policy-project.json` contains the literal placeholders `${PROJECT_NAME}` and `${ENV_NAME}` (`staging` or `prod`, the same value `deploy.sh` receives). Create one policy per environment:
 
 ```bash
-PROJECT_NAME=acme envsubst '${PROJECT_NAME}' < infra/iam-policy-project.json > /tmp/policy.json
-aws iam create-policy --policy-name "acme-deploy" --policy-document file:///tmp/policy.json
+PROJECT_NAME=acme ENV_NAME=staging envsubst '${PROJECT_NAME} ${ENV_NAME}' < infra/iam-policy-project.json > /tmp/policy.json
+aws iam create-policy --policy-name "acme-deploy-staging" --policy-document file:///tmp/policy.json
 ```
+
+- `ProjectSecrets` is scoped to `<PROJECT_NAME>/<ENV_NAME>-*` (Secrets Manager appends a 6-character suffix to the name), so the staging role can never read `<PROJECT_NAME>/prod`. A policy created before 0.7.4 with `<PROJECT_NAME>/*` must be updated to this scope before the production secret exists (IAM change: Jaime applies it, N07).
 
 - Read and list actions (`Get*`) are on `*` because Lightsail does not support resource-level permissions for them; the list is the minimum `deploy.sh`, `rollback.sh` and the runbook use.
 - `CreateContainerServiceRegistryLogin` (used by `lightsailctl` during `aws lightsail push-container-image`) has no resource type, so it cannot be scoped.
