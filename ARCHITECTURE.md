@@ -18,7 +18,7 @@ flowchart LR
 - Managed PostgreSQL (private). Object Storage bucket per project.
 
 ## Key decisions
-See `docs/adr/`. 0001 stack · 0002 transactional outbox · 0003 integrations via adapters · 0004 TOTP 2FA and customer self-service.
+See `docs/adr/`. 0001 stack · 0002 transactional outbox · 0003 integrations via adapters · 0004 TOTP 2FA and customer self-service · 0006 Fargate + Secrets Manager migration (proposed).
 
 ## Main flows
 1. Request -> session check (signature, expiry, then the user re-read by id: session version, role and tenant must match) -> role and tenant guard -> zod validation -> service (transaction) -> audit log -> outbox event. Repositories cover users, orders, idempotency and audit; order creation and the webhook still write some rows through Prisma inside their transaction (roadmap: move them behind repositories).

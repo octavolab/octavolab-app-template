@@ -7,7 +7,12 @@ Plantilla del grupo OctavoLab para software real (Módulo S y Módulo C del kit)
 - Cómo se corre: ver "Quick start" abajo (incluye `cp .env.example .env`) y abrir http://localhost:5173 (web) y http://localhost:3000/api/health (API).
 - Cómo se despliega: un push a `main` despliega a staging (la ejecución nocturna no despliega); una etiqueta `vX.Y.Z` despliega a producción tras aprobación manual. CI entra a AWS con un rol por proyecto vía OIDC, sin llaves guardadas.
 - Cómo se revierte: `infra/rollback.sh <service> <version>` (Lightsail conserva las últimas versiones).
+- Operación (desplegar, crear el owner, rotar secretos, cambiar el modo de integraciones): `docs/runbook.es.md` (español) y `docs/runbook.md` (inglés). Secretos y su modelo de amenazas: `docs/secrets.md`.
 - A quién llamar: tech lead del grupo (en `OWNERSHIP.md`).
+
+## Operations (English)
+Deploy, create the owner, rotate secrets, switch integration mode: `docs/runbook.md` (Spanish: `docs/runbook.es.md`).
+Secrets threat model: `docs/secrets.md`. `/api/health` reports the deployed git SHA (`version`) and `mode`.
 
 ## Quick start (developers)
 Requires Node 22, pnpm 9 (`corepack enable`) and Docker. Every command runs from the repository root.
