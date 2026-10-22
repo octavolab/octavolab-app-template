@@ -21,6 +21,8 @@ aws lightsail get-container-service-deployments --region "$REGION" --service-nam
 # environment and says so (never fails open: the API refuses to start without its required variables).
 SECRET_ID="${SECRET_ID:-${PROJECT_NAME:-$SERVICE}/$ENV}"
 umask 077
+# Files with merged secrets never outlive the script, whatever path it exits by (a failed snapshot included).
+trap 'rm -f "/tmp/secrets.$ENV.json" "/tmp/secrets.$ENV.err" "/tmp/lightsail.$ENV.json" "/tmp/active.$ENV.json" "/tmp/seed.$ENV.json"' EXIT
 if aws secretsmanager get-secret-value --region "$REGION" --secret-id "$SECRET_ID" --query SecretString --output text > "/tmp/secrets.$ENV.json" 2> "/tmp/secrets.$ENV.err"; then
   echo "Secrets: merged from Secrets Manager ($SECRET_ID)"; echo "::notice title=Secrets Manager in use::merged from $SECRET_ID"
 elif grep -q "ResourceNotFoundException" "/tmp/secrets.$ENV.err" && [ "$ENV" != "prod" ] && [ "${SEED_SECRET_FROM_ACTIVE:-1}" = "1" ] \
@@ -83,7 +85,11 @@ if [ "$ENV" = "prod" ]; then
     SNAP_STATE="$(aws lightsail get-relational-database-snapshot --region "$REGION" --relational-database-snapshot-name "$SNAP" --query relationalDatabaseSnapshot.state --output text 2>/dev/null || echo pending)"
     [ "$SNAP_STATE" = "available" ] && break; echo "Snapshot $SNAP is $SNAP_STATE; waiting ($i/90)"; sleep 10
   done
-  [ "$SNAP_STATE" = "available" ] || { echo "Snapshot $SNAP not available in time (state: $SNAP_STATE); deploy stopped"; exit 1; }
+  if [ "$SNAP_STATE" != "available" ]; then
+    echo "Snapshot $SNAP not available in time (state: $SNAP_STATE); deploy stopped. Last answer from AWS:"
+    aws lightsail get-relational-database-snapshot --region "$REGION" --relational-database-snapshot-name "$SNAP" --query relationalDatabaseSnapshot.state --output text 2>&1 | sed 's/arn:[^ ]*/<arn>/g' | head -3 || true
+    exit 1
+  fi
   echo "Snapshot available: $SNAP"
 fi
 # Lightsail accepts one deployment at a time: wait (up to 15 min) until the service is no longer deploying.

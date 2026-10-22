@@ -36,8 +36,22 @@ The worker logs `"event":"outbox_dead_letter"` (error level) when an event fails
 ## Rolling out 0.7.5 (operations 2FA)
 From 0.7.5, with `REQUIRE_PRIVILEGED_2FA=true`, operations users without 2FA get 403 `MFA_ENROLLMENT_REQUIRED` on every route except enrollment. Before deploying it: list them (`SELECT email FROM "User" WHERE role = 'operations' AND "totpEnabledAt" IS NULL;`), ask them to enroll on the current version (enrollment is already available to operations), and deploy when the list is empty or the remaining users are told they will be asked at their next request.
 ## Alerts (worker, every 60 s)
-Two rules, counted from the database over the last 15 minutes: `mfa_failed_spike` (at least `MFA_FAILED_ALERT_THRESHOLD`, default 10, failed second-factor attempts across all users) and `outbox_dead_letter` (any dead-lettered event). Each rule fires at most once an hour per worker process after a successful delivery (a failed delivery is retried every minute; a worker restart resets the hour); dead letters are counted since the last delivered alert, so none are lost during the hour. Delivery: a JSON POST to `ALERT_WEBHOOK_URL` (https; a Slack incoming webhook works as is because it reads `text`; Discord and Teams need a relay that reshapes the JSON), plus an error log line `"event":"alert_fired"`. `ALERT_WEBHOOK_URL` is required when `INTEGRATIONS_MODE=live`; keep it in the environment's secret in AWS Secrets Manager (it is a credential). Test it after each change: dead-letter a test event in staging or lower the threshold temporarily, and confirm the message arrives. `alert_delivery_failed` in the log means the webhook is wrong or down.
-- `mfa_failed_spike`: read `SELECT "entityId", after->>'ip' AS ip, count(*) FROM "AuditLog" WHERE action = 'mfa_failed' AND "createdAt" > now() - interval '15 minutes' GROUP BY 1, 2 ORDER BY 3 DESC;`. One user from many IPs = password probably leaked: reset the password and revoke sessions. Many users from one IP = credential stuffing: the per-user limits already hold; consider blocking the IP at the edge.
+**Rules** (counted from the database):
+- `mfa_failed_spike`: at least `MFA_FAILED_ALERT_THRESHOLD` (default 10) failed second-factor attempts in the last 15 minutes, all users together.
+- `outbox_dead_letter`: any outbox event dead-lettered since the last delivered alert (so none are lost while the rule is cooling down).
+
+**Delivery:**
+- A JSON POST to `ALERT_WEBHOOK_URL`, plus an error log line `"event":"alert_fired"`.
+- Format: a Slack incoming webhook works as is (it reads `text`). Discord and Teams need a relay that reshapes the JSON.
+- `ALERT_WEBHOOK_URL` must be https and is required when `INTEGRATIONS_MODE=live`. It is a credential: keep it in the environment's secret in AWS Secrets Manager.
+- Each rule fires at most once an hour per worker process, counted from a successful delivery. A failed delivery is retried every minute. A worker restart resets the hour.
+
+**Testing** (after every change to the webhook): in staging, dead-letter a test event or lower the threshold for a moment, and confirm the message arrives. `alert_delivery_failed` in the log means the webhook is wrong or down.
+
+**Response:**
+- `mfa_failed_spike`: run `SELECT "entityId", after->>'ip' AS ip, count(*) FROM "AuditLog" WHERE action = 'mfa_failed' AND "createdAt" > now() - interval '15 minutes' GROUP BY 1, 2 ORDER BY 3 DESC;`.
+  - One user from many IPs: the password has probably leaked. Reset the password and revoke the sessions.
+  - Many users from one IP: credential stuffing. The per-user limits already hold; consider blocking the IP at the edge.
 - `outbox_dead_letter`: see "Outbox dead letters" above.
 ## Incidents
 1. Declare in LOGBOOK with time. 2. Check /api/health, container logs (`aws lightsail get-container-log`). 3. Rollback if a deploy caused it. 4. Notify client with the template in docs/handover. 5. Postmortem within 48 h.
