@@ -6,7 +6,7 @@ kit: octavolab-core (versión vigente, hoy 6.9.3) · módulos: S (software diná
 - Secretos: nunca en el repositorio ni en el chat. `.env` está ignorado. Producción usa variables de entorno de Lightsail.
 - `main` protegida: todo entra por pull request con revisión humana. Sin `force push`.
 - Comandos destructivos (borrar base de datos, eliminar servicios de Lightsail, `prisma migrate reset` en staging o producción) solo con aprobación explícita de Jaime en el turno.
-- Pagos, envíos, correos o mensajes reales solo con llaves de producción cargadas por Jaime y modo `INTEGRATIONS_MODE=live`.
+- Pagos, envíos, correos o mensajes reales solo con llaves de producción cargadas por Jaime y modo `live` en esa integración (`PAYMENTS_MODE`, `MESSAGING_MODE`, `CARRIER_MODE`, `STORAGE_MODE` o `INTEGRATIONS_MODE`) con `ALLOW_LIVE=true`, que solo Jaime pone en producción (ADR 0005).
 
 ## Cómo se trabaja (Módulo C, 2.2)
 1. Historia con criterio de aceptación antes del código.

@@ -1,6 +1,56 @@
 # Changelog
 All notable changes to this project are documented here (Keep a Changelog, semver).
 
+## [Unreleased] - real integrations on staging (sandbox/test mode)
+
+"Unit" runs locally and in CI with stubbed providers; "PG (CI)" is a PostgreSQL integration test; "real run" means only a
+provider sandbox or a Lightsail deploy can confirm it.
+
+### Added
+- Per-integration modes `PAYMENTS_MODE`, `MESSAGING_MODE`, `CARRIER_MODE`, `STORAGE_MODE` (`fake | sandbox | live`), each
+  defaulting to `INTEGRATIONS_MODE` (ADR 0005). One validator (`packages/integrations/src/config.ts`) is used by the API env
+  schema (API and worker exit at boot listing every invalid variable) and by the adapter factories. `live` requires
+  `ALLOW_LIVE=true`, accepted only with `APP_ENV=production`; provider secrets are checked for the mode (Stripe `sk_test_`/`rk_test_`
+  in sandbox, `sk_live_`/`rk_live_` in live) (unit).
+- `APP_ENV` (`staging | production`), set by `infra/deploy.sh`; required in production.
+- OES carrier adapter (`oes.ts`): 8 s budget, retries with full jitter on 5xx/429 only, circuit breaker, sanitized
+  `CarrierError`. The OES API spec is not in the repo: the wire format is PROVISIONAL behind `TODO(OES-SPEC)`, contract tests
+  replay synthetic fixtures, an opt-in sandbox test runs with `OES_SANDBOX_TEST=1` (unit; real run pending the spec).
+- Storage: `StorageProvider` contract, `FakeStorage` (memory) and `S3Storage` for a private Lightsail bucket with explicit bucket
+  access keys (`S3_ACCESS_KEY`/`S3_SECRET_KEY`, never the default credential chain), tenant-namespaced keys
+  (`tenants/{tenantId}/...`), pre-signed PUT uploads of at most 15 minutes with signed content type and length, type and size
+  limits (unit, signing verified locally; real run: bucket).
+- Sentry (SDK 10) in API, worker (preloaded with `node --import`) and web (lazy, from `GET /api/client-config`), only when
+  `SENTRY_DSN` is set; `environment` = `APP_ENV`, `release` = `APP_VERSION`, traces 0.1 on staging; PII and secrets scrubbed in
+  `beforeSend`/`beforeSendTransaction`/`beforeBreadcrumb`; dead-lettered outbox events reported; CSP `connect-src` adds the ingest
+  origin; web source maps uploaded in the deploy jobs only when the `SENTRY_AUTH_TOKEN` secret exists (unit; real run: events).
+- `GET /api/client-config` (public runtime config for the web app; OpenAPI updated).
+- `GET /api/health` adds `modes` and `deps.payments: ok | degraded` (Stripe `GET /v1/balance`, cached 60 s, shared in-flight
+  call, the health answer waits at most 1 s for it; degraded never fails the probe) (unit).
+- Resend sandbox: `MESSAGING_ALLOW_LIST` (exact addresses that receive real test emails); staging default sender
+  `OctavoLab Staging <noreply@24hcargo.com>`; DNS records for `24hcargo.com` documented (unit).
+- Docs: `docs/integrations/{stripe,oes,storage,sentry}.md`, ADR 0005, runbook sections (integrations health, Nano memory, Sentry).
+
+### Changed
+- Stripe adapter audit: refuses a POST without idempotency key; validates minor units and ISO currency before calling; 10 s
+  timeout per attempt; up to 3 attempts with full jitter on network/timeout/429/5xx honouring `Stripe-Should-Retry`; sanitized
+  `PaymentError`; rejects webhook events whose `livemode` does not match the mode; `ping()` for health (unit).
+- Provider errors reaching the API answer 503 `PROVIDER_ERROR` (retryable) or 502, never a 500 with provider details (unit).
+- `infra/deploy.sh` waits until the new deployment version is ACTIVE (exit 1 on FAILED/INACTIVE/10 min with the last 40 log
+  lines of every container), and no longer prints the deployment response (it contained the environment, i.e. secrets)
+  (stubbed `aws` locally; real run pending).
+- `infra/smoke.sh` asserts `ok:true` AND `version` equal to the deployed `git describe` value.
+- Image: the API and worker start with `--enable-source-maps --import ./apps/api/dist/instrument.js`; web source maps are
+  deleted from the image.
+- A non-fake mode with no implemented provider (e.g. `INTEGRATIONS_MODE=sandbox` with `CARRIER_PROVIDER=fake`) is now a boot
+  error; it used to fail at the first request.
+- `infra/README.md`: immutable OIDC subject, staging trust policy, production subject; Nano capacity, memory check and the
+  command to scale to Micro.
+- Coverage: `packages/integrations` gated at 90 % lines (measured 99.5 % lines, 98.6 % branches); api 97.8 % lines, 87.6 % branches.
+
+### Removed
+- `withRetry` from `contracts.ts` (replaced by `retryWithJitter` in `resilience.ts`).
+
 ## [0.7.2] - 2026-10-22
 
 ### Independent re-audit (44/50) follow-ups

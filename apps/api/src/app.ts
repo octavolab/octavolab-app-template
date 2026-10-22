@@ -9,6 +9,8 @@ import swagger from "@fastify/swagger";
 import { serializerCompiler, validatorCompiler, jsonSchemaTransform } from "fastify-type-provider-zod";
 import { randomUUID } from "node:crypto";
 import { Redis } from "ioredis";
+import * as Sentry from "@sentry/node";
+import { PaymentError, CarrierError, StorageError } from "@octavolab/integrations";
 import { env } from "./config/env.js";
 import { healthRoutes } from "./routes/health.js";
 import { orderRoutes } from "./routes/orders.js";
@@ -17,6 +19,7 @@ import { webhookRoutes } from "./routes/webhooks.js";
 import { userRoutes } from "./routes/users.js";
 import { meRoutes } from "./routes/me.js";
 import { productRoutes } from "./routes/products.js";
+import { clientConfigRoutes, sentryIngestOrigin } from "./routes/client-config.js";
 import { AppError } from "./lib/errors.js";
 
 /** A client-sent X-Request-Id is reused only if it is short and safe to log; anything else gets a fresh UUID. */
@@ -36,12 +39,14 @@ export async function buildApp(opts: { logStream?: { write(line: string): void }
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  // Stripe Elements (checkout) needs its script, its iframes and its API; nothing else leaves 'self'.
+  // Stripe Elements (checkout) needs its script, its iframes and its API; nothing else leaves 'self'. connect-src also
+  // allows the Sentry ingest origin when the browser SDK is enabled (SENTRY_WEB_DSN or SENTRY_DSN).
+  const ingest = sentryIngestOrigin();
   await app.register(helmet, { contentSecurityPolicy: { directives: {
     defaultSrc: ["'self'"], frameAncestors: ["'none'"],
     scriptSrc: ["'self'", "https://js.stripe.com"],
     frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
-    connectSrc: ["'self'", "https://api.stripe.com"],
+    connectSrc: ["'self'", "https://api.stripe.com", ...(ingest ? [ingest] : [])],
   } } });
   await app.register(cors, { origin: [env.APP_URL], credentials: true });
   await app.register(cookie, { secret: env.SESSION_SECRET });
@@ -64,11 +69,19 @@ export async function buildApp(opts: { logStream?: { write(line: string): void }
     if (err instanceof AppError) {
       return reply.status(err.status).send({ code: err.code, message: err.message, requestId });
     }
+    // Provider failures (messages are already sanitized by the adapters): 503 when retrying later can help, else 502.
+    if (err instanceof PaymentError || err instanceof CarrierError || err instanceof StorageError) {
+      req.log.warn({ provider: err.name, code: err.code, status: err.status, requestId }, "provider error");
+      Sentry.captureException(err, { tags: { provider_error: err.code } });
+      return reply.status(err.retryable ? 503 : 502).send({ code: "PROVIDER_ERROR", message: "A provider could not complete the request; try again later", requestId });
+    }
+    Sentry.captureException(err, { tags: { request_id: requestId } }); // no-op when Sentry is not initialised
     req.log.error({ err, requestId }, "unhandled error");
     return reply.status(500).send({ code: "INTERNAL", message: "Unexpected error", requestId });
   });
 
   await app.register(healthRoutes, { prefix: "/api" });
+  await app.register(clientConfigRoutes, { prefix: "/api" });
   await app.register(authRoutes, { prefix: "/api/v1" });
   await app.register(orderRoutes, { prefix: "/api/v1" });
   await app.register(userRoutes, { prefix: "/api/v1" });

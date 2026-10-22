@@ -62,14 +62,15 @@ jobs:
         run: docker run --rm -v "$PWD:/src" ghcr.io/google/osv-scanner:v1.9.1 --lockfile=/src/pnpm-lock.yaml
       - name: build image
         run: docker build -f infra/Dockerfile -t app:ci .
-      # Boot the real image against PostgreSQL: proves migrate deploy and server start exactly as in Lightsail.
+      # Boot the real image against PostgreSQL: proves migrate deploy and server start exactly as in Lightsail
+      # (APP_ENV and APP_VERSION are what deploy.sh sets there; the env schema requires APP_ENV in production).
       - name: boot image (migrate + health)
         run: |
           docker network create ci
           docker run -d --name db --network ci -e POSTGRES_USER=app -e POSTGRES_PASSWORD=app -e POSTGRES_DB=app "postgres:16-alpine@sha256:deb28ee471183cb0c303113dac9b2433c51eeeeb678def7af9a9ec5820367815"
           for i in $(seq 1 30); do docker exec db pg_isready -U app && break; sleep 2; done
           docker run -d --name app --network ci -p 3000:3000 \
-            -e NODE_ENV=production -e INTEGRATIONS_MODE=fake -e DATABASE_URL=postgresql://app:app@db:5432/app \
+            -e NODE_ENV=production -e APP_ENV=staging -e APP_VERSION=ci -e INTEGRATIONS_MODE=fake -e DATABASE_URL=postgresql://app:app@db:5432/app \
             -e SESSION_SECRET="$(openssl rand -base64 48)" -e TOTP_ENC_KEY="$(openssl rand -base64 32)" -e REQUIRE_PRIVILEGED_2FA=true \
             -e APP_URL=http://localhost:3000 -e OPS_EMAIL=ops@ci.invalid app:ci
           for i in $(seq 1 30); do curl -fsS localhost:3000/api/health | tee /tmp/h.json | grep -q '"ok":true' && break; sleep 2; done
@@ -93,13 +94,25 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     permissions: { contents: read, id-token: write }
+    env: { HAS_SENTRY_TOKEN: "${{ secrets.SENTRY_AUTH_TOKEN != '' }}" }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Sentry source maps: only when the SENTRY_AUTH_TOKEN secret exists (the steps skip otherwise; nothing fails).
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        if: env.HAS_SENTRY_TOKEN == 'true'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: env.HAS_SENTRY_TOKEN == 'true'
+        with: { node-version: 22, cache: pnpm }
+      - name: Upload web source maps to Sentry
+        if: env.HAS_SENTRY_TOKEN == 'true'
+        env: { SENTRY_AUTH_TOKEN: "${{ secrets.SENTRY_AUTH_TOKEN }}", SENTRY_ORG: "${{ vars.SENTRY_ORG }}", SENTRY_PROJECT: "${{ vars.SENTRY_PROJECT_WEB }}" }
+        run: infra/sentry-sourcemaps.sh
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with: { role-to-assume: "${{ secrets.AWS_ROLE_STAGING }}", aws-region: eu-west-2 }
       - name: lightsailctl plugin
         run: go install github.com/aws/lightsailctl@v1.0.8 && echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH" # pinned; the Go checksum database verifies the module
       - run: PROJECT_NAME=${{ vars.PROJECT_NAME }} infra/deploy.sh staging
+      # deploy.sh returns only once the new version is ACTIVE; smoke.sh checks /api/health reports that same version.
       - run: infra/smoke.sh ${{ vars.STAGING_URL }}
   deploy-prod:
     needs: [quality, security, semgrep]
@@ -107,8 +120,19 @@ jobs:
     runs-on: ubuntu-latest
     environment: production   # requires manual approval in GitHub + Jaime's approval in chat (N07)
     permissions: { contents: read, id-token: write }
+    env: { HAS_SENTRY_TOKEN: "${{ secrets.SENTRY_AUTH_TOKEN != '' }}" }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Sentry source maps: only when the SENTRY_AUTH_TOKEN secret exists (the steps skip otherwise; nothing fails).
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        if: env.HAS_SENTRY_TOKEN == 'true'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: env.HAS_SENTRY_TOKEN == 'true'
+        with: { node-version: 22, cache: pnpm }
+      - name: Upload web source maps to Sentry
+        if: env.HAS_SENTRY_TOKEN == 'true'
+        env: { SENTRY_AUTH_TOKEN: "${{ secrets.SENTRY_AUTH_TOKEN }}", SENTRY_ORG: "${{ vars.SENTRY_ORG }}", SENTRY_PROJECT: "${{ vars.SENTRY_PROJECT_WEB }}" }
+        run: infra/sentry-sourcemaps.sh
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with: { role-to-assume: "${{ secrets.AWS_ROLE_PROD }}", aws-region: eu-west-2 }
       - name: lightsailctl plugin

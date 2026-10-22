@@ -7,6 +7,7 @@ export class FakePayments implements PaymentGateway {
   /** Same event shape as Stripe ({ id, type, data: { object } }); unsigned, so the API closes this route in production. */
   async verifyWebhook(rawBody: string, _signature: string) { const d = JSON.parse(rawBody); return { eventId: d.id ?? "evt_fake", type: d.type ?? "payment.succeeded", data: d.data ?? d }; }
   async refund(i: { providerRef: string; money: Money; idempotencyKey: string }) { return { providerRef: `${i.providerRef}_refund` }; }
+  async ping() { /* always healthy */ }
 }
 export class FakeCarrier implements CarrierRates {
   name = "fake-carrier";

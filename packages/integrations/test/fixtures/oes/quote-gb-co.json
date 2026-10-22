@@ -1,0 +1,15 @@
+{
+  "request": { "from": "GB", "to": "CO", "weightKg": 2, "volumetricKg": 5 },
+  "wireRequest": { "origin": "GB", "destination": "CO", "weightKg": 2, "volumetricKg": 5 },
+  "status": 200,
+  "response": {
+    "rates": [
+      { "carrier": "Carrier A", "service": "Express", "amount": 8450, "currency": "GBP", "etaDays": 3 },
+      { "carrier": "Carrier B", "service": "Economy", "amount": 5200, "currency": "GBP" }
+    ]
+  },
+  "expected": [
+    { "carrier": "Carrier A", "service": "Express", "money": { "amount": 8450, "currency": "GBP" }, "etaDays": 3 },
+    { "carrier": "Carrier B", "service": "Economy", "money": { "amount": 5200, "currency": "GBP" } }
+  ]
+}

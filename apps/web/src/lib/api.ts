@@ -51,7 +51,9 @@ export async function api<T>(path: string, opts: Options = {}): Promise<T> {
 
 // ---- Shapes returned by the API (docs/openapi.json, apps/api/src/routes) ----
 export type Role = "owner" | "admin" | "operations" | "customer";
-export type Health = { ok: boolean; version: string; mode: "fake" | "sandbox" | "live"; deps?: Record<string, string> };
+type Mode = "fake" | "sandbox" | "live";
+/** `mode` is INTEGRATIONS_MODE (the default); `modes` is what each integration actually runs (ADR 0005). */
+export type Health = { ok: boolean; version: string; mode: Mode; modes?: { payments: Mode; messaging: Mode; carrier: Mode; storage: Mode }; deps?: Record<string, string> };
 export type LoginResponse = { mfaRequired: true } | { id: string; email: string; role: Role; mfaEnrollmentRequired?: boolean; recoveryCodesRemaining?: number };
 export type Me = { id: string; role: Role; tenantId: string | null; mfaEnabled: boolean; mfaEnrollmentRequired: boolean };
 export type Product = { id: string; sku: string; name: string; unitAmount: number; currency: string; active: boolean; createdAt: string; updatedAt: string };

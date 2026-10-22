@@ -59,6 +59,14 @@ describe("outbox dispatchOnce", () => {
     expect(l.warn).toHaveBeenCalled();
   });
 
+  it("alerts (Sentry in the container) when an event is dead-lettered; the default alert is safe without Sentry", async () => {
+    const db = fakeDb([{ id: "e9", type: "order.paid", payload: { orderId: "o9" }, attempts: 7 }]);
+    const alert = vi.fn();
+    await worker.dispatchOnce({ ...deps(db, fakeMessaging(true)), alert });
+    expect(alert).toHaveBeenCalledWith("outbox_dead_letter", { tags: { outbox_type: "order.paid", permanent: "false" }, extra: { outboxId: "e9", attempts: 8, lastError: "provider 503" } });
+    expect(() => worker.defaultDeps().alert!("outbox_dead_letter", { tags: {}, extra: {} })).not.toThrow();
+  });
+
   it("retries provider failures with exponential backoff and dead-letters at the maximum attempts with an error log", async () => {
     const db = fakeDb([{ id: "e4", type: "order.created", payload: { orderId: "o4" }, attempts: 6 }]);
     const l = log();

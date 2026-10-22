@@ -24,6 +24,19 @@
         }
       }
     },
+    "/api/client-config": {
+      "get": {
+        "summary": "Public runtime configuration for the web app (Sentry DSN, environment, release)",
+        "tags": [
+          "config"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/api/v1/auth/2fa/enroll": {
       "post": {
         "summary": "Start TOTP enrollment: returns the otpauth URI and secret once",

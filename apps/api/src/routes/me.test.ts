@@ -6,7 +6,7 @@ import { db } from "../test-support/prisma-stand-in.js";
 // Environment must be set before the app (and its env schema) is imported.
 Object.assign(process.env, {
   NODE_ENV: "test", DATABASE_URL: "postgresql://x:y@localhost:5432/z", SESSION_SECRET: "s".repeat(40), APP_URL: "http://localhost:5173", OPS_EMAIL: "ops@test.invalid", RATE_LIMIT_MAX: "1000",
-  INTEGRATIONS_MODE: "sandbox", PAYMENTS_PROVIDER: "stripe", STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_test",
+  INTEGRATIONS_MODE: "fake", PAYMENTS_MODE: "sandbox", PAYMENTS_PROVIDER: "stripe", STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_test",
   TOTP_ENC_KEY: Buffer.alloc(32, 7).toString("base64"),
 });
 delete process.env.REDIS_URL;
