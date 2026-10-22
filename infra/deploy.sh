@@ -20,11 +20,18 @@ aws lightsail get-container-service-deployments --region "$REGION" --service-nam
 # environment and says so (never fails open: the API refuses to start without its required variables).
 SECRET_ID="${SECRET_ID:-${PROJECT_NAME:-$SERVICE}/$ENV}"
 umask 077
-if aws secretsmanager get-secret-value --region "$REGION" --secret-id "$SECRET_ID" --query SecretString --output text > "/tmp/secrets.$ENV.json" 2>/dev/null; then
+if aws secretsmanager get-secret-value --region "$REGION" --secret-id "$SECRET_ID" --query SecretString --output text > "/tmp/secrets.$ENV.json" 2> "/tmp/secrets.$ENV.err"; then
   echo "Secrets: merged from Secrets Manager ($SECRET_ID)"
+elif grep -qE "ResourceNotFoundException|AccessDeniedException" "/tmp/secrets.$ENV.err" && [ "$ENV" != "prod" ]; then
+  # Outside production only: a secret that does not exist yet, or a role without ReadProjectSecrets yet, falls back to
+  # the active environment with a visible CI warning. Production requires the secret (ASVS 6.4.1) and fails instead.
+  echo "{}" > "/tmp/secrets.$ENV.json"
+  echo "::warning title=Secrets Manager not in use::$SECRET_ID missing or not readable by the deploy role; staging keeps the Lightsail environment (ASVS 6.4.1 Partial)"
 else
-  echo "{}" > "/tmp/secrets.$ENV.json"; echo "Secrets: $SECRET_ID not found or not readable; keeping the active environment"
+  # AccessDenied, network errors or a missing secret in prod: fail closed, never deploy with unknown secrets.
+  echo "Secrets: cannot read $SECRET_ID; deploy stopped:"; sed 's/arn:[^ ]*/<arn>/g' "/tmp/secrets.$ENV.err" | head -3; exit 1
 fi
+rm -f "/tmp/secrets.$ENV.err"
 python3 - "$ENV" <<'EOF'
 import json,sys
 env=sys.argv[1]; new=json.load(open(f'/tmp/lightsail.{env}.json')); act=json.load(open(f'/tmp/active.{env}.json')) or {}

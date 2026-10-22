@@ -7,6 +7,7 @@ All notable changes to this project are documented here (Keep a Changelog, semve
 - Recovery codes: 23 symbols, 115 bits each (`XXXXX-XXXXX-XXXXX-XXXXX-XXX`), above the 112 bits of ASVS 2.6.2; older 50-bit codes stay valid until regenerated (unit).
 - Secrets: `infra/deploy.sh` merges the AWS Secrets Manager secret `<PROJECT_NAME>/<env>` into the app container (the worker inherits it); the deploy policy can read only that project's secrets. ASVS 6.4.1 stays Partial until the secret exists and a deploy log shows the merge.
 - The E2E comment uses the new variable name.
+- `deploy.sh` reads secrets fail-closed: production stops on any Secrets Manager error; outside production only a missing secret or a role without `ReadProjectSecrets` falls back, with a CI warning.
 - ASVS L2 checklist signed by Jaime Blum (CTO) on 2026-10-22, with the open items accepted before production listed in `SECURITY.md`.
 - Deploys: one staging deploy at a time (`concurrency`), `deploy.sh` waits while Lightsail is deploying and until the new deployment is RUNNING, and the smoke test checks the deployed version. A real run (39776447566) failed because two pushes deployed at once. The smoke checks also failed open (`grep && echo` under `set -e`); they now exit 1.
 - First-access bootstrap: with `BOOTSTRAP_OWNER_EMAIL` and `BOOTSTRAP_OWNER_PASSWORD` set, the API creates the demo tenant, demo products and the first owner at start; idempotent, never overwrites a user, never logs the password (unit). Runbook: "First access".
