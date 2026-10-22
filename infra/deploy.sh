@@ -6,9 +6,9 @@
 set -euo pipefail
 # Every temp file below may hold secrets: owner-only from the first one written (/tmp/active.* holds the live environment).
 umask 077
+ENV="${1:?staging|prod}"
 # Files with merged secrets never outlive the script, whatever path it exits by (a failed snapshot included).
 trap 'rm -f "/tmp/secrets.$ENV.json" "/tmp/secrets.$ENV.err" "/tmp/lightsail.$ENV.json" "/tmp/active.$ENV.json" "/tmp/seed.$ENV.json"' EXIT
-ENV="${1:?staging|prod}"
 SERVICE="${LIGHTSAIL_SERVICE:-${PROJECT_NAME:?set PROJECT_NAME}-$ENV}"
 REGION="${AWS_REGION:-eu-west-2}"
 VERSION="$(git describe --tags --always)"
