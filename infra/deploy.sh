@@ -22,8 +22,29 @@ SECRET_ID="${SECRET_ID:-${PROJECT_NAME:-$SERVICE}/$ENV}"
 umask 077
 if aws secretsmanager get-secret-value --region "$REGION" --secret-id "$SECRET_ID" --query SecretString --output text > "/tmp/secrets.$ENV.json" 2> "/tmp/secrets.$ENV.err"; then
   echo "Secrets: merged from Secrets Manager ($SECRET_ID)"
+elif grep -q "ResourceNotFoundException" "/tmp/secrets.$ENV.err" && [ "$ENV" != "prod" ] && [ "${SEED_SECRET_FROM_ACTIVE:-1}" = "1" ] \
+  && python3 - "$ENV" <<'PY'
+# One-time seed outside production: the secret does not exist yet, so create it from the ACTIVE app container's
+# environment (the values a human already typed in the Lightsail console). Values are never printed; the file is 0600.
+import json,sys
+env=sys.argv[1]; act=json.load(open(f'/tmp/active.{env}.json')) or {}
+app=act.get('app',{}).get('environment',{})
+keys=[k for k in ("DATABASE_URL","SESSION_SECRET","TOTP_ENC_KEY","OPS_EMAIL") if app.get(k)]
+if "DATABASE_URL" not in keys or "SESSION_SECRET" not in keys: sys.exit(1)
+json.dump({k: app[k] for k in keys}, open(f'/tmp/seed.{env}.json','w'))
+print("Secrets: seeding keys", ",".join(keys))
+PY
+then
+  if aws secretsmanager create-secret --region "$REGION" --name "$SECRET_ID" --secret-string "file:///tmp/seed.$ENV.json" \
+       --tags "Key=project,Value=${PROJECT_NAME:-$SERVICE}" "Key=env,Value=$ENV" --query Name --output text 2> "/tmp/secrets.$ENV.err"; then
+    mv "/tmp/seed.$ENV.json" "/tmp/secrets.$ENV.json"
+    echo "Secrets: created $SECRET_ID from the active environment and merged from Secrets Manager ($SECRET_ID)"
+  else
+    rm -f "/tmp/seed.$ENV.json"; echo "{}" > "/tmp/secrets.$ENV.json"
+    echo "::warning title=Secrets Manager not in use::could not create $SECRET_ID (the deploy role needs the ProjectSecrets statement); staging keeps the Lightsail environment (ASVS 6.4.1 Partial)"
+  fi
 elif grep -qE "ResourceNotFoundException|AccessDeniedException" "/tmp/secrets.$ENV.err" && [ "$ENV" != "prod" ]; then
-  # Outside production only: a secret that does not exist yet, or a role without ReadProjectSecrets yet, falls back to
+  # Outside production only: a secret that does not exist yet, or a role without the ProjectSecrets statement yet, falls back to
   # the active environment with a visible CI warning. Production requires the secret (ASVS 6.4.1) and fails instead.
   echo "{}" > "/tmp/secrets.$ENV.json"
   echo "::warning title=Secrets Manager not in use::$SECRET_ID missing or not readable by the deploy role; staging keeps the Lightsail environment (ASVS 6.4.1 Partial)"

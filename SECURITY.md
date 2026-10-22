@@ -64,7 +64,7 @@ Platform
 | 5.1.2 | Mass parameter assignment | strict zod schemas on `/me/orders` and 2FA bodies | Met (unit) |
 | 6.2.1, 6.2.2 | Fail securely; approved algorithms and modes | AES-256-GCM, HKDF-SHA256, HMAC-SHA256; decrypt fails closed | Met (unit) |
 | 6.3.1 | Random values from a CSPRNG | `crypto.randomBytes` for secrets, IVs, codes | Met (code review) |
-| 6.4.1 | Keys in a secrets management solution | AWS Secrets Manager secret `<PROJECT_NAME>/<env>` merged into the container at deploy (`infra/deploy.sh`), read by the deploy role only (`ReadProjectSecrets` in `infra/iam-policy-project.json`); Lightsail injects them as environment variables at runtime | Partial until the secret exists for an environment and a deploy log shows "Secrets: merged from Secrets Manager"; rotation in `docs/runbook.md` |
+| 6.4.1 | Keys in a secrets management solution | AWS Secrets Manager secret `<PROJECT_NAME>/<env>` merged into the container at deploy (`infra/deploy.sh`), read by the deploy role only (`ProjectSecrets` in `infra/iam-policy-project.json`); Lightsail injects them as environment variables at runtime | Partial until the secret exists for an environment and a deploy log shows "Secrets: merged from Secrets Manager"; rotation in `docs/runbook.md` |
 | 7.1.1 | No credentials or secrets in logs | Resend error mapping, MFA logs | Met (unit) |
 | 8.2.1 | Anti-caching headers for sensitive data | `Cache-Control: no-store` on enroll, activate, recovery codes | Met (unit) |
 
