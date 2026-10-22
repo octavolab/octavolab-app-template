@@ -40,14 +40,22 @@ jobs:
       - name: Migrations exist and are applied (Prisma has no down migrations; rollback plan per migration in its folder)
         run: test -n "$(ls packages/db/prisma/migrations 2>/dev/null)" && pnpm --filter @octavolab/db exec prisma migrate status && pnpm --filter @octavolab/db exec prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
       - run: pnpm build
+      # The E2E step hung twice on 22 Oct 2026 (runs of PR #21 and PR #22) until the job timeout; the browser install
+      # (apt) and the test run now have their own step timeouts so the next hang names its step.
+      - name: Install Playwright browsers
+        timeout-minutes: 10
+        run: pnpm exec playwright install --with-deps chromium webkit
       - name: E2E (390/768/1024/1440 + axe); vite preview proxies /api to the API on :3000
+        timeout-minutes: 15
         run: |
           # Seed and 2FA key for this run only: random values, never committed (gitleaks stays clean).
           export SEED_ADMIN_PASSWORD="$(openssl rand -base64 24)" SEED_CUSTOMER_PASSWORD="$(openssl rand -base64 24)" TOTP_ENC_KEY="$(openssl rand -base64 32)"
           pnpm db:seed
           pnpm --filter api start & pnpm --filter web preview --port 5173 --strictPort &
-          for i in $(seq 1 30); do curl -fsS localhost:3000/api/health >/dev/null && break; sleep 1; done
-          E2E_BASE_URL=http://localhost:5173 API_URL=http://localhost:3000 pnpm exec playwright install --with-deps chromium webkit && pnpm e2e
+          ready() { curl -fsS --max-time 2 localhost:3000/api/health >/dev/null && curl -fsS --max-time 2 localhost:5173 >/dev/null; }
+          for i in $(seq 1 60); do ready && break; sleep 1; done
+          ready || { echo "API or web preview did not start in 60 s"; exit 1; }
+          E2E_BASE_URL=http://localhost:5173 API_URL=http://localhost:3000 pnpm e2e
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with: { name: playwright-report, path: playwright-report }
