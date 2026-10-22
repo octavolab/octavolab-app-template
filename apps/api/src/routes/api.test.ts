@@ -9,7 +9,7 @@ import { db } from "../test-support/prisma-stand-in.js";
 // Environment must be set before the app (and its env schema) is imported.
 Object.assign(process.env, {
   NODE_ENV: "test", DATABASE_URL: "postgresql://x:y@localhost:5432/z", SESSION_SECRET: "s".repeat(40), APP_URL: "http://localhost:5173", OPS_EMAIL: "ops@test.invalid", RATE_LIMIT_MAX: "1000",
-  INTEGRATIONS_MODE: "sandbox", PAYMENTS_PROVIDER: "stripe", STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_test",
+  INTEGRATIONS_MODE: "fake", PAYMENTS_MODE: "sandbox", PAYMENTS_PROVIDER: "stripe", STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_test",
 });
 
 // Unit tests use the in-memory rate-limit store even where CI exports REDIS_URL; the Redis store is covered by
@@ -20,8 +20,10 @@ delete process.env.REDIS_URL;
 vi.mock("@octavolab/db", async () => (await import("../test-support/prisma-stand-in.js")).dbModule);
 
 // Stripe API stand-in (sandbox mode uses the real StripeGateway): honours Idempotency-Key like Stripe does.
-const stripe = vi.hoisted(() => ({ calls: [] as { method: string; url: string; body: URLSearchParams | null; key: string | undefined }[], byKey: new Map<string, string>() }));
+const stripe = vi.hoisted(() => ({ calls: [] as { method: string; url: string; body: URLSearchParams | null; key: string | undefined }[], byKey: new Map<string, string>(), fail: [] as { status: number; body: unknown }[] }));
 vi.stubGlobal("fetch", async (url: string, init: any) => {
+  const failure = stripe.fail.shift();
+  if (failure) return new Response(JSON.stringify(failure.body), { status: failure.status });
   const key = init.headers["Idempotency-Key"];
   stripe.calls.push({ method: init.method, url, body: init.body ? new URLSearchParams(String(init.body)) : null, key });
   let id = url.split("/").pop()!;
@@ -284,6 +286,19 @@ describe("checkout: draft -> pending_payment -> paid", () => {
     expect([create[0]!.body!.get("amount"), create[0]!.body!.get("currency"), create[0]!.body!.get("metadata[orderId]"), create[0]!.key]).toEqual(["5997", "gbp", orderId, `checkout:${orderId}`]);
     expect(db.audit.some((a) => a.action === "checkout_started" && a.entityId === orderId)).toBe(true);
     expect([...db.keys.values()].some((k) => k.response.includes("secret"))).toBe(false); // the client secret is never stored
+  });
+
+  it("maps provider failures to 503 (retry later) or 502 without leaking provider details, and leaves the order untouched", async () => {
+    const created = await app.inject({ method: "POST", url: "/api/v1/orders", headers: { cookie: admin, "idempotency-key": "k-checkout-order-fail" }, payload: { customerEmail: "p@y.co", currency: "GBP", items: [{ sku: "F", qty: 1, unitAmount: 500 }] } });
+    const id = created.json().id;
+    stripe.fail.push(...[1, 2, 3].map(() => ({ status: 503, body: { error: { type: "api_error", message: "sk_test_x down" } } })));
+    const unavailable = await checkout(id, "k-pay-fail-0001");
+    expect([unavailable.statusCode, unavailable.json().code]).toEqual([503, "PROVIDER_ERROR"]);
+    expect(unavailable.body).not.toContain("sk_test_x");
+    stripe.fail.push({ status: 401, body: { error: { type: "invalid_request_error" } } });
+    const rejected = await checkout(id, "k-pay-fail-0002");
+    expect([rejected.statusCode, rejected.json().code]).toEqual([502, "PROVIDER_ERROR"]);
+    expect(db.orders.find((x) => x.id === id).status).toBe("draft");
   });
 
   it("is idempotent: same key replays, a new key resumes the same intent, another body is rejected", async () => {

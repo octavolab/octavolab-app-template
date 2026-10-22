@@ -1,7 +1,9 @@
+// The env schema first: a misconfigured worker reports every invalid variable at once and exits (see server.ts).
+import { env } from "../config/env.js";
 import { prisma } from "@octavolab/db";
 import { pino } from "pino";
+import * as Sentry from "@sentry/node";
 import { getMessaging, type MessagingProvider } from "@octavolab/integrations";
-import { env } from "../config/env.js";
 
 /**
  * Outbox dispatcher: at-least-once delivery. Rows are claimed with FOR UPDATE SKIP LOCKED plus a 60 s lease so two
@@ -32,10 +34,14 @@ export const handlers: Readonly<Record<string, Handler>> = {
 };
 
 type Db = Pick<typeof prisma, "$queryRaw" | "outbox">;
-export type WorkerDeps = HandlerDeps & { db: Db; log: Log; handlers: Readonly<Record<string, Handler>>; now: () => Date };
+/** Alerting hook for dead letters (Sentry in the container; a no-op when Sentry is not initialised). */
+export type Alert = (message: string, ctx: { tags: Record<string, string>; extra: Record<string, unknown> }) => void;
+export type WorkerDeps = HandlerDeps & { db: Db; log: Log; handlers: Readonly<Record<string, Handler>>; now: () => Date; alert?: Alert };
+
+const sentryAlert: Alert = (message, ctx) => { Sentry.captureMessage(message, { level: "error", tags: ctx.tags, extra: ctx.extra }); };
 
 export function defaultDeps(): WorkerDeps {
-  return { db: prisma, messaging: getMessaging, opsEmail: env.OPS_EMAIL, log: pino({ name: "outbox-worker" }), handlers, now: () => new Date() };
+  return { db: prisma, messaging: getMessaging, opsEmail: env.OPS_EMAIL, log: pino({ name: "outbox-worker" }), handlers, now: () => new Date(), alert: sentryAlert };
 }
 
 /** Claims up to 50 pending events (not delivered, not dead-lettered, lease expired) for this worker. */
@@ -60,6 +66,7 @@ export async function dispatchOnce(deps: WorkerDeps = defaultDeps()) {
       if (attempts >= MAX_ATTEMPTS || permanent) {
         await deps.db.outbox.update({ where: { id: ev.id }, data: { attempts: { increment: 1 }, lastError, deadLetteredAt: deps.now(), lockedUntil: null } });
         deps.log.error({ event: "outbox_dead_letter", metric: "outbox_dead_letter_total", outboxId: ev.id, type: ev.type, attempts, permanent, lastError }, "outbox event dead-lettered");
+        deps.alert?.("outbox_dead_letter", { tags: { outbox_type: ev.type, permanent: String(permanent) }, extra: { outboxId: ev.id, attempts, lastError } });
         result.deadLettered++;
       } else {
         await deps.db.outbox.update({ where: { id: ev.id }, data: { attempts: { increment: 1 }, lastError, lockedUntil: new Date(deps.now().getTime() + 5000 * 2 ** ev.attempts) } });
@@ -73,6 +80,9 @@ export async function dispatchOnce(deps: WorkerDeps = defaultDeps()) {
 
 if (/outbox\.worker\.(js|ts)$/.test(process.argv[1] ?? "")) {
   const deps = defaultDeps();
-  const loop = async () => { await dispatchOnce(deps).catch((e) => deps.log.error({ event: "outbox_loop_error", error: String(e) }, "outbox loop error")); setTimeout(loop, 2000); };
+  const loop = async () => {
+    await dispatchOnce(deps).catch((e) => { deps.log.error({ event: "outbox_loop_error", error: String(e) }, "outbox loop error"); Sentry.captureException(e); });
+    setTimeout(loop, 2000);
+  };
   void loop();
 }
