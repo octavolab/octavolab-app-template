@@ -235,8 +235,9 @@ describe("REQUIRE_PRIVILEGED_2FA", () => {
     expect((await call("PUT", "/api/v1/products/SKU1", owner.sid, { name: "x", unitAmount: 100, currency: "GBP" })).statusCode).toBe(200);
     const off = await call("POST", "/api/v1/auth/2fa/disable", owner.sid, { password: PW, code: codeAt(owner.secret, STEP) });
     expect([off.statusCode, off.json().code]).toEqual([409, "MFA_REQUIRED"]);
-    // Operations staff are not forced by this option; admins are (they change prices and roles).
-    expect((await call("GET", "/api/v1/products", await sidOf("ops@m.co"))).statusCode).toBe(200);
+    // Operations staff are forced too since 0.7.5 (they read every order of the tenant), like admins.
+    const opsBlocked = await call("GET", "/api/v1/products", await sidOf("ops@m.co"));
+    expect([opsBlocked.statusCode, opsBlocked.json().code]).toEqual([403, "MFA_ENROLLMENT_REQUIRED"]);
     const adminLogin = await password("plain@m.co");
     expect(adminLogin.json()).toMatchObject({ role: "admin", mfaEnrollmentRequired: true });
     const adminBlocked = await call("PUT", "/api/v1/products/SKU1", cookies(adminLogin).sid!, { name: "x", unitAmount: 100, currency: "GBP" });

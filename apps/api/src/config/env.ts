@@ -31,8 +31,8 @@ export const envSchema = z
     // 32 random bytes in base64: `openssl rand -base64 32`. Without it, 2FA endpoints answer 503 and accounts with 2FA
     // enabled cannot sign in (fail closed). Rotating it invalidates every enrolled secret (users re-enroll).
     TOTP_ENC_KEY: z.string().refine(isMasterKey, "must be 32 random bytes in base64 (openssl rand -base64 32)").optional(),
-    // "true": an owner or admin without 2FA can sign in but every route except enrollment answers 403
-    // MFA_ENROLLMENT_REQUIRED, and owners and admins cannot disable 2FA. Old name REQUIRE_OWNER_2FA is accepted (see parseEnv). Set to "true" in infra/lightsail.json for staging and production.
+    // "true": an owner, admin or operations user without 2FA can sign in but every route except enrollment answers 403
+    // MFA_ENROLLMENT_REQUIRED, and those staff roles cannot disable 2FA. Old name REQUIRE_OWNER_2FA is accepted (see parseEnv). Set to "true" in infra/lightsail.json for staging and production.
     REQUIRE_PRIVILEGED_2FA: z.enum(["true", "false"]).default("false").transform((v) => v === "true"),
     // Issuer shown in authenticator apps (no colon: it is part of the otpauth label).
     TOTP_ISSUER: z.string().min(1).max(64).regex(/^[^:]+$/, "must not contain ':'").default("OctavoLab"),
