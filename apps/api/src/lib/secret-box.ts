@@ -51,13 +51,16 @@ export function createSecretBox(masterB64: string) {
 }
 export type SecretBox = ReturnType<typeof createSecretBox>;
 
-const RC_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 32 symbols, no 0/O, 1/I: 10 symbols = 50 bits
+const RC_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 32 symbols, no 0/O, 1/I: 5 bits each
 
-/** Ten single-use recovery codes, `XXXXX-XXXXX`, 50 bits of entropy each (rejection-free: 256 % 32 === 0). */
+/** Symbols per recovery code: 23 x 5 bits = 115 bits, above the 112 bits ASVS 2.6.2 asks for look-up secrets. */
+const RC_SYMBOLS = 23;
+
+/** Ten single-use recovery codes, `XXXXX-XXXXX-XXXXX-XXXXX-XXX`, 115 bits each (rejection-free: 256 % 32 === 0). */
 export function generateRecoveryCodes(count = 10): string[] {
   return Array.from({ length: count }, () => {
-    const s = [...randomBytes(10)].map((b) => RC_ALPHABET[b % 32]).join("");
-    return `${s.slice(0, 5)}-${s.slice(5)}`;
+    const s = [...randomBytes(RC_SYMBOLS)].map((b) => RC_ALPHABET[b % 32]).join("");
+    return s.match(/.{1,5}/g)!.join("-");
   });
 }
 

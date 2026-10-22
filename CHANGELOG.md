@@ -1,6 +1,13 @@
 # Changelog
 All notable changes to this project are documented here (Keep a Changelog, semver).
 
+## [0.7.3] - 2026-10-22
+
+### Final audit follow-ups (48/50 with Cumplimiento at 4)
+- Recovery codes: 23 symbols, 115 bits each (`XXXXX-XXXXX-XXXXX-XXXXX-XXX`), above the 112 bits of ASVS 2.6.2; older 50-bit codes stay valid until regenerated (unit).
+- Secrets: `infra/deploy.sh` merges the AWS Secrets Manager secret `<PROJECT_NAME>/<env>` into the app container (the worker inherits it); the deploy policy can read only that project's secrets. ASVS 6.4.1 stays Partial until the secret exists and a deploy log shows the merge.
+- The E2E comment uses the new variable name.
+
 ## [0.7.2] - 2026-10-22
 
 ### Independent re-audit (44/50) follow-ups

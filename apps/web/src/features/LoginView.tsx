@@ -86,7 +86,7 @@ export function LoginView({ onSignedIn, notice }: { onSignedIn: (r: Signed) => v
               </div>
               {Boolean(error) && <ErrorAlert error={error} />}
               {useRecovery ? (
-                <Field ref={codeRef} key="recovery" label={t("mfaRecoveryCode")} name="recoveryCode" autoComplete="one-time-code" autoCapitalize="characters" spellCheck={false} maxLength={24} value={code} onChange={(e) => setCode(e.target.value)} />
+                <Field ref={codeRef} key="recovery" label={t("mfaRecoveryCode")} name="recoveryCode" autoComplete="one-time-code" autoCapitalize="characters" spellCheck={false} maxLength={40} value={code} onChange={(e) => setCode(e.target.value)} />
               ) : (
                 <Field ref={codeRef} key="totp" label={t("mfaCode")} name="code" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} value={code}
                   className="[&_input]:text-center [&_input]:text-2xl [&_input]:tracking-[0.5em] [&_input]:tabular" onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />

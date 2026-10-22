@@ -19,7 +19,9 @@
     {
       "Sid": "RegistryLoginForImagePush",
       "Effect": "Allow",
-      "Action": ["lightsail:CreateContainerServiceRegistryLogin"],
+      "Action": [
+        "lightsail:CreateContainerServiceRegistryLogin"
+      ],
       "Resource": "*"
     },
     {
@@ -31,7 +33,19 @@
         "lightsail:CreateRelationalDatabaseSnapshot"
       ],
       "Resource": "*",
-      "Condition": { "StringEquals": { "aws:ResourceTag/project": "${PROJECT_NAME}" } }
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/project": "${PROJECT_NAME}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadProjectSecrets",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": "arn:aws:secretsmanager:*:*:secret:${PROJECT_NAME}/*"
     },
     {
       "Sid": "DenyDestructive",

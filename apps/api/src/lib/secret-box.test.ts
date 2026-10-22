@@ -41,7 +41,7 @@ describe("secret box (AES-256-GCM at rest)", () => {
     const codes = generateRecoveryCodes();
     expect(codes.length).toBe(10);
     expect(new Set(codes).size).toBe(10);
-    for (const c of codes) expect(c).toMatch(/^[A-HJ-NP-Z2-9]{5}-[A-HJ-NP-Z2-9]{5}$/);
+    for (const c of codes) expect(c).toMatch(/^([A-HJ-NP-Z2-9]{5}-){4}[A-HJ-NP-Z2-9]{3}$/); // 23 symbols = 115 bits (ASVS 2.6.2)
     const h = box.hashRecoveryCode(codes[0]!, "u1");
     expect(h).toMatch(/^[0-9a-f]{64}$/);
     expect(box.hashRecoveryCode(codes[0]!.toLowerCase().replace("-", " "), "u1")).toBe(h); // normalized input

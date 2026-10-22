@@ -107,7 +107,7 @@ test("customer: login, catalog, cart, checkout (demo payment), order in My order
 
 test("staff: products list and 2FA enrollment shows the QR and the confirm step", async ({ page }) => {
   await signIn(page, staff);
-  // Owners land on Products, or on Security when REQUIRE_OWNER_2FA forces enrollment first.
+  // Owners land on Products, or on Security when REQUIRE_PRIVILEGED_2FA forces enrollment first.
   const h1 = page.getByRole("heading", { level: 1 });
   await expect(h1).toHaveText(/^(Products|Two-step verification)$/);
   if ((await h1.textContent()) === "Products") {

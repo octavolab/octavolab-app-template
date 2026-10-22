@@ -14,11 +14,26 @@ aws lightsail push-container-image --region "$REGION" --service-name "$SERVICE" 
 sed -e "s/:SERVICE_NAME.app.latest/:$SERVICE.app.latest/g" -e "s/\${APP_VERSION}/$VERSION/g" infra/lightsail.json > /tmp/lightsail.$ENV.json
 # Lightsail replaces the whole deployment: carry over the environment of the ACTIVE deployment (secrets never live in this repo).
 aws lightsail get-container-service-deployments --region "$REGION" --service-name "$SERVICE" --query "deployments[?state=='ACTIVE'] | [0].containers" --output json > "/tmp/active.$ENV.json"
+# Source of truth for secrets (ASVS 6.4.1): AWS Secrets Manager secret "<PROJECT_NAME>/<env>", a JSON object such as
+# {"DATABASE_URL": "...", "SESSION_SECRET": "...", "TOTP_ENC_KEY": "..."}. Rotating = updating the secret and redeploying.
+# Its values win over the carried-over environment. If the secret does not exist yet, the deploy keeps the active
+# environment and says so (never fails open: the API refuses to start without its required variables).
+SECRET_ID="${SECRET_ID:-${PROJECT_NAME:-$SERVICE}/$ENV}"
+umask 077
+if aws secretsmanager get-secret-value --region "$REGION" --secret-id "$SECRET_ID" --query SecretString --output text > "/tmp/secrets.$ENV.json" 2>/dev/null; then
+  echo "Secrets: merged from Secrets Manager ($SECRET_ID)"
+else
+  echo "{}" > "/tmp/secrets.$ENV.json"; echo "Secrets: $SECRET_ID not found or not readable; keeping the active environment"
+fi
 python3 - "$ENV" <<'EOF'
 import json,sys
 env=sys.argv[1]; new=json.load(open(f'/tmp/lightsail.{env}.json')); act=json.load(open(f'/tmp/active.{env}.json')) or {}
+sec=json.load(open(f'/tmp/secrets.{env}.json')) or {}
+if not isinstance(sec,dict) or not all(isinstance(k,str) and isinstance(v,str) for k,v in sec.items()):
+    sys.exit("Secrets Manager value must be a flat JSON object of strings")
 for name,c in new['containers'].items():
-    c['environment']={**act.get(name,{}).get('environment',{}),**c.get('environment',{})}
+    base={**act.get(name,{}).get('environment',{}),**c.get('environment',{})}
+    c['environment']={**base,**sec} if name=='app' else base
 # The worker validates the same environment as the API (DATABASE_URL, SESSION_SECRET, APP_URL, OPS_EMAIL, INTEGRATIONS_MODE):
 # it inherits the app container's variables; its own values (NODE_ENV and any override) win.
 if 'worker' in new['containers'] and 'app' in new['containers']:
@@ -27,4 +42,5 @@ if 'worker' in new['containers'] and 'app' in new['containers']:
 json.dump(new,open(f'/tmp/lightsail.{env}.json','w'))
 EOF
 aws lightsail create-container-service-deployment --region "$REGION" --service-name "$SERVICE" --cli-input-json "file:///tmp/lightsail.$ENV.json"
+rm -f "/tmp/secrets.$ENV.json" "/tmp/lightsail.$ENV.json" "/tmp/active.$ENV.json"
 echo "Deployment created. Watch: aws lightsail get-container-services --service-name $SERVICE --region $REGION"

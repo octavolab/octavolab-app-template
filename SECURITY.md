@@ -19,7 +19,7 @@ Two-factor authentication (TOTP, RFC 6238), staff and owner roles (customers: 40
 - Single use: the last accepted time step is stored and advanced with one conditional UPDATE, so a code (or an older one) is refused after use (unit; concurrent requests: PG (CI)).
 - Enrollment: 160-bit secret from the CSPRNG, generated server-side; the otpauth URI and base32 secret are returned once with `Cache-Control: no-store`; 2FA is enabled only after a valid code (unit).
 - At rest: the secret is AES-256-GCM ciphertext (`v1.<iv>.<tag>.<ct>`, 96-bit random IV) under a key derived with HKDF-SHA256 from `TOTP_ENC_KEY` (32 bytes, environment only); the associated data binds it to the user id, so a value copied to another row does not decrypt; anything else (a legacy plaintext value, a wrong key, tampering) fails closed (unit).
-- Recovery codes: 10 per activation, 50 bits each, shown once; stored only as HMAC-SHA256 under a second HKDF sub-key with the user id as salt; each one works once (conditional UPDATE on `usedAt IS NULL`); regenerating them invalidates the old set (unit; concurrency: PG (CI)).
+- Recovery codes: 10 per activation, 115 bits each (`XXXXX-XXXXX-XXXXX-XXXXX-XXX`), shown once; stored only as HMAC-SHA256 under a second HKDF sub-key with the user id as salt; each one works once (conditional UPDATE on `usedAt IS NULL`); regenerating them invalidates the old set (unit; concurrency: PG (CI)).
 - Login: the password is checked first and the answer is identical for a wrong password whether or not the account has 2FA; only after a correct password does the API answer `{ mfaRequired: true }` with a 5-minute httpOnly `mfa` cookie (path `/api/v1/auth`, SameSite=Strict) and no session. That token is signed with a purpose-specific key, carries the user's `sessionVersion` and is never accepted as a session (unit).
 - Rate limits on every code check (login step, activate, disable, regenerate): 5 attempts per 5 minutes per (user, IP) and 20 failed codes per 24 hours per user across all IPs; successful logins do not count toward the daily cap; fails closed if Redis is down (unit). Accepted trade-off: someone who already has the password can block that user's second step for up to 24 hours.
 - Activation, disable and owner reset revoke the user's sessions (`sessionVersion + 1`) and re-issue the caller's cookie; disable needs the password and a second factor (unit).
@@ -52,7 +52,7 @@ Platform
 |---|---|---|---|
 | 2.2.1 | Anti-automation on authentication | `lib/login-limiter.ts` (`createMfaLimiter`) | Met (unit; Redis store: PG (CI)) |
 | 2.6.1 | Look-up secrets used once | `recoveryCodesRepo.use` | Met (unit; concurrency PG (CI)) |
-| 2.6.2 | Look-up secrets: 112 bits, or salted and hashed | `lib/secret-box.ts` | Partial: 50 bits per code, keyed HMAC-SHA256 with the user id as salt (stronger offline than a public salt), online rate limits; raise to 112 bits if a client requires strict compliance |
+| 2.6.2 | Look-up secrets: 112 bits, or salted and hashed | `lib/secret-box.ts` | Met: 115 bits per code (23 symbols of 5 bits), keyed HMAC-SHA256 with the user id as salt, single use, online rate limits. Codes issued before v0.7.3 (50 bits) stay valid until regenerated |
 | 2.6.3 | Look-up secrets resistant to offline attacks | keyed HMAC, key outside the database | Met (unit) |
 | 2.8.1 | Time-based OTP has a defined lifetime | 30 s step, +/- 1 step | Met (unit) |
 | 2.8.3 | Approved cryptographic algorithms for OTP | HMAC-SHA1 per RFC 6238 (apps' default) | Met (unit, RFC vectors) |
@@ -64,7 +64,7 @@ Platform
 | 5.1.2 | Mass parameter assignment | strict zod schemas on `/me/orders` and 2FA bodies | Met (unit) |
 | 6.2.1, 6.2.2 | Fail securely; approved algorithms and modes | AES-256-GCM, HKDF-SHA256, HMAC-SHA256; decrypt fails closed | Met (unit) |
 | 6.3.1 | Random values from a CSPRNG | `crypto.randomBytes` for secrets, IVs, codes | Met (code review) |
-| 6.4.1 | Keys in a secrets management solution | `TOTP_ENC_KEY`, `RESEND_API_KEY` as Lightsail environment variables | Partial: env vars, not a KMS; rotation documented in `docs/runbook.md` |
+| 6.4.1 | Keys in a secrets management solution | AWS Secrets Manager secret `<PROJECT_NAME>/<env>` merged into the container at deploy (`infra/deploy.sh`), read by the deploy role only (`ReadProjectSecrets` in `infra/iam-policy-project.json`); Lightsail injects them as environment variables at runtime | Partial until the secret exists for an environment and a deploy log shows "Secrets: merged from Secrets Manager"; rotation in `docs/runbook.md` |
 | 7.1.1 | No credentials or secrets in logs | Resend error mapping, MFA logs | Met (unit) |
 | 8.2.1 | Anti-caching headers for sensitive data | `Cache-Control: no-store` on enroll, activate, recovery codes | Met (unit) |
 

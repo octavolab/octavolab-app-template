@@ -9,7 +9,7 @@ import { activate, disable, regenerateRecoveryCodes, resetForUser, startEnrollme
 /** Exactly one second factor: a 6-digit TOTP code or a recovery code. */
 export const SecondFactor = z.object({
   code: z.string().regex(/^\d{6}$/, "6 digits").optional(),
-  recoveryCode: z.string().min(10).max(24).regex(/^[A-Za-z0-9 -]+$/).optional(),
+  recoveryCode: z.string().min(10).max(40).regex(/^[A-Za-z0-9 -]+$/).optional(),
 }).strict().refine((b) => Boolean(b.code) !== Boolean(b.recoveryCode), { message: "send exactly one of code or recoveryCode" });
 
 const STAFF = ["owner", "admin", "operations"] as const;

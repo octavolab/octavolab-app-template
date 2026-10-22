@@ -28,3 +28,9 @@ With `REDIS_URL` set, a Redis outage keeps ordinary routes serving (rate limits 
 
 ## Messaging (Resend)
 `MESSAGING_PROVIDER=resend` needs `RESEND_API_KEY` and `MESSAGING_FROM` (the API and worker refuse to start without them in sandbox or live mode). Sandbox mode sends only to `delivered@resend.dev`. Outbox rows with `lastError` like `resend 401 invalid_api_key` retry with backoff until the key is fixed; `resend 422 validation_error` rows are dead-lettered at once. Details: `docs/integrations/resend.md`.
+
+## Secrets in AWS Secrets Manager (ASVS 6.4.1)
+- One secret per environment, named `<PROJECT_NAME>/<env>` (for example `octavolab/staging`), region of the service, type "Other", value a flat JSON object: `{"DATABASE_URL": "...", "SESSION_SECRET": "...", "TOTP_ENC_KEY": "..."}` plus provider keys when the mode is sandbox or live. Jaime types the values in the console; they never go in chat, tickets or the repo.
+- The deploy role reads it (`ReadProjectSecrets` in `infra/iam-policy-project.json`, after the `${PROJECT_NAME}` substitution). `infra/deploy.sh` merges it into the `app` container (the worker inherits it) and logs only "Secrets: merged from Secrets Manager", never values.
+- Rotate: update the secret value, then redeploy (push to `main` for staging). For `TOTP_ENC_KEY` follow the rotation note above.
+- Cost: AWS lists a per-secret monthly price; check it on the console before creating (N07).
