@@ -64,7 +64,7 @@ Platform
 | 5.1.2 | Mass parameter assignment | strict zod schemas on `/me/orders` and 2FA bodies | Met (unit) |
 | 6.2.1, 6.2.2 | Fail securely; approved algorithms and modes | AES-256-GCM, HKDF-SHA256, HMAC-SHA256; decrypt fails closed | Met (unit) |
 | 6.3.1 | Random values from a CSPRNG | `crypto.randomBytes` for secrets, IVs, codes | Met (code review) |
-| 6.4.1 | Keys in a secrets management solution | AWS Secrets Manager secret `<PROJECT_NAME>/<env>` merged into the container at deploy (`infra/deploy.sh`), read by the deploy role only (`ProjectSecrets` in `infra/iam-policy-project.json`); Lightsail injects them as environment variables at runtime | Partial until the secret exists for an environment and a deploy log shows "Secrets: merged from Secrets Manager"; rotation in `docs/runbook.md` |
+| 6.4.1 | Keys in a secrets management solution | AWS Secrets Manager secret `<PROJECT_NAME>/<env>` merged into the containers at every deploy (`infra/deploy.sh`), read by the deploy role only (`ProjectSecrets`); Lightsail injects them as environment variables at runtime; production refuses to deploy without its secret | Met for staging: `octavolab/staging` created by the one-time seed (run 39784682470) and merged on the next deploy, CI notice "Secrets Manager in use: merged from octavolab/staging" (run 39786567499); rotation in `docs/runbook.md` |
 | 7.1.1 | No credentials or secrets in logs | Resend error mapping, MFA logs | Met (unit) |
 | 8.2.1 | Anti-caching headers for sensitive data | `Cache-Control: no-store` on enroll, activate, recovery codes | Met (unit) |
 
@@ -75,7 +75,7 @@ Platform
 | Reviewed | The ASVS 4.0.3 mapping above, with the evidence in `docs/LOGBOOK.md` (green CI with image boot, trivy, semgrep, gitleaks, osv-scanner; OIDC deploy and version-checked smoke on staging) |
 | Signed by | Jaime Blum, CTO (approval given in writing in the engineering session: "firmo ASVS"; confirmed by Jaime merging PR #18 from his own GitHub account, 2026-10-22 13:06 UTC, merge commit 4c27ce7) |
 | Date | 2026-10-22 |
-| Accepted open items (must close before production) | 6.4.1 Partial: the Secrets Manager secret for staging is not created yet (deploy falls back to the Lightsail environment); passkeys/WebAuthn; alerting on `mfa_failed` and `outbox_dead_letter`; restore test; IAM `env` tag per environment |
+| Accepted open items (must close before production) | passkeys/WebAuthn; alerting on `mfa_failed` and `outbox_dead_letter`; restore test; IAM `env` tag per environment |
 | Next review | Before the first production deploy, or in 90 days, whichever comes first |
 
 ## Roadmap before any production deploy (Módulo C 6.2)

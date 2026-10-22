@@ -7,6 +7,7 @@ All notable changes to this project are documented here (Keep a Changelog, semve
 - Recovery codes: 23 symbols, 115 bits each (`XXXXX-XXXXX-XXXXX-XXXXX-XXX`), above the 112 bits of ASVS 2.6.2; older 50-bit codes stay valid until regenerated (unit).
 - Secrets: `infra/deploy.sh` merges the AWS Secrets Manager secret `<PROJECT_NAME>/<env>` into the app container (the worker inherits it); the deploy policy can read only that project's secrets. ASVS 6.4.1 stays Partial until the secret exists and a deploy log shows the merge.
 - The E2E comment uses the new variable name.
+- ASVS 6.4.1 Met for staging: the secret exists and every deploy merges it (CI notice, run 39786567499).
 - Staging secret seeded automatically (once) from the active Lightsail environment when the deploy role has `ProjectSecrets` (`GetSecretValue`, `DescribeSecret`, `CreateSecret`, `TagResource` on `<PROJECT_NAME>/*` only); values never printed; never in production.
 - `deploy.sh` reads secrets fail-closed: production stops on any Secrets Manager error; outside production only a missing secret or a role without `ReadProjectSecrets` falls back, with a CI warning.
 - ASVS L2 checklist signed by Jaime Blum (CTO) on 2026-10-22, with the open items accepted before production listed in `SECURITY.md`.
