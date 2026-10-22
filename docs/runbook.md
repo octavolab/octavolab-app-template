@@ -6,7 +6,15 @@ CI deploys with GitHub OIDC: the deploy jobs (only they have `id-token: write`) 
 ## Rollback
 `infra/rollback.sh <service> <version>`; verify with `infra/smoke.sh`.
 ## Backups and restore
-Managed DB automatic daily snapshots. Restore test quarterly: create DB from snapshot, point staging to it, run smoke.
+Managed DB automatic daily snapshots. Restore test before the first production launch and then quarterly (ASVS accepted item; done by Jaime with his SSO profile, because the deploy role cannot create or delete databases). It creates a temporary paid database (smallest plan, billed by the hour, price shown in the console first) and needs Jaime's "yes" in chat (N07):
+1. Automatic backups are point-in-time: restore the latest restorable time of `<project>-staging-db` (or `-prod-db`). For a manual snapshot instead, list them with `aws lightsail get-relational-database-snapshots --region eu-west-2`.
+2. `aws lightsail create-relational-database-from-snapshot --region eu-west-2 --relational-database-name <project>-restore-test --source-relational-database-name <project>-staging-db --use-latest-restorable-time --relational-database-bundle-id <smallest bundle> --no-publicly-accessible --tags key=project,value=<project> key=env,value=restore-test` (manual snapshot: `--relational-database-snapshot-name <snapshot>` instead of the two source options). Flags taken from the Lightsail CLI reference; confirm with `aws lightsail create-relational-database-from-snapshot help` on the day.
+3. Wait until it is `available` (about 10 to 20 minutes). Note the time from start to available: that is the measured recovery time.
+4. In the staging secret (`<project>/staging` in Secrets Manager), temporarily set `DATABASE_URL` to the restored endpoint (same master user and password as the source; `?sslmode=require`). Push an empty commit to `main` or re-run the last deploy job.
+5. Check: `infra/smoke.sh <STAGING_URL>` green; sign in as the owner (2FA) and open the latest orders; `SELECT count(*)` of `Order`, `User`, `AuditLog` match the source within the snapshot time.
+6. Put the original `DATABASE_URL` back in the secret and redeploy; smoke green again.
+7. Delete `<project>-restore-test` (Jaime, console; deletion is denied to the deploy role).
+8. Record in `docs/LOGBOOK.md`: date, snapshot name and time, measured recovery time, counts compared, result, who ran it. Until a row exists, SECURITY.md keeps "restore test" as an accepted open item.
 ## Outbox dead letters
 The worker logs `"event":"outbox_dead_letter"` (error level) when an event fails 8 times. Find them with `SELECT id, type, "lastError" FROM "Outbox" WHERE "deadLetteredAt" IS NOT NULL;`, fix the cause, then replay as described in `packages/db/prisma/migrations/20261021120200_outbox_dead_letter/ROLLBACK.md`.
 ## Alerts (worker, every 60 s)

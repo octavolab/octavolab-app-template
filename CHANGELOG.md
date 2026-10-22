@@ -1,6 +1,20 @@
 # Changelog
 All notable changes to this project are documented here (Keep a Changelog, semver).
 
+## [0.7.5] - 2026-10-22
+Production readiness (SECURITY.md accepted items).
+### Added
+- Alerts in the worker every 60 s: `mfa_failed_spike` (MFA_FAILED_ALERT_THRESHOLD failed codes in 15 min, default 10) and `outbox_dead_letter`, posted to `ALERT_WEBHOOK_URL` (https; required when `INTEGRATIONS_MODE=live`) with a one-hour cooldown per rule; never through the outbox (unit).
+- Migration `20261022120000_alert_indexes` (expand only): `AuditLog(action, createdAt)` and `Outbox(deadLetteredAt)`.
+- ADR 0005: migrations stay at app container start on Lightsail (no network path from CI to a private database, no one-shot tasks); `validate:sql` now fails when a migration's `ROLLBACK.md` does not declare "Expand only", "Contract step" or "Initial migration".
+- Runbook: step-by-step restore test with measured recovery time; snapshot before every production deploy; "Alerts" section.
+### Changed
+- `REQUIRE_PRIVILEGED_2FA=true` now also forces the `operations` role to enroll and keep 2FA (it reads every order of the tenant) (unit).
+### Not done (stays open)
+- Node 24: the `node:24-alpine` digest could not be resolved from the build session (no registry access); Dependabot (docker) proposes it after its cooldown. Node 22 is in maintenance until April 2027.
+- Restore test: procedure written; it runs in Jaime's AWS session with a temporary paid database.
+- Passkeys (WebAuthn).
+
 ## [0.7.4] - 2026-10-22
 
 ### Security
