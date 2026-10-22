@@ -57,7 +57,8 @@ test("customer: login, catalog, cart, checkout (demo payment), order in My order
 
   // Catalog from GET /api/v1/products with prices formatted from minor units.
   await expect(page.getByRole("heading", { level: 1, name: "Catalog" })).toBeVisible();
-  const addButtons = page.getByRole("button", { name: /^Add to cart\b/ }) // flex children are blockified, so the name is "Add to cart : <product>";
+  // Flex children are blockified, so the accessible name is "Add to cart : <product>".
+  const addButtons = page.getByRole("button", { name: /^Add to cart\b/ });
   await expect(addButtons.first()).toBeVisible();
   await expectAccessible(page, "catalog");
 
@@ -90,7 +91,8 @@ test("customer: login, catalog, cart, checkout (demo payment), order in My order
   const row = page.getByRole("article").filter({ has: page.getByTestId("order-id").filter({ hasText: shortId }) });
   await expect(row).toBeVisible();
   await expect(row.getByText("Awaiting payment")).toBeVisible();
-  await expect(row.getByText(totalText)).toBeVisible();
+  // The total can also equal a line subtotal (one product, quantity 2): the first match is the order total.
+  await expect(row.getByText(totalText).first()).toBeVisible();
   await row.getByRole("button", { name: "Show items" }).click();
   await expect(row.getByRole("button", { name: "Hide items" })).toHaveAttribute("aria-expanded", "true");
   await expectAccessible(page, "orders");
