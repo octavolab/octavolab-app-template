@@ -41,6 +41,18 @@ if 'worker' in new['containers'] and 'app' in new['containers']:
     w['environment']={**new['containers']['app'].get('environment',{}),**w.get('environment',{})}
 json.dump(new,open(f'/tmp/lightsail.{env}.json','w'))
 EOF
+# Lightsail accepts one deployment at a time: wait (up to 15 min) until the service is no longer deploying.
+for i in $(seq 1 90); do
+  STATE="$(aws lightsail get-container-services --region "$REGION" --service-name "$SERVICE" --query "containerServices[0].state" --output text)"
+  case "$STATE" in DEPLOYING|UPDATING|PENDING) echo "Service is $STATE; waiting ($i/90)"; sleep 10;; *) break;; esac
+done
 aws lightsail create-container-service-deployment --region "$REGION" --service-name "$SERVICE" --cli-input-json "file:///tmp/lightsail.$ENV.json"
 rm -f "/tmp/secrets.$ENV.json" "/tmp/lightsail.$ENV.json" "/tmp/active.$ENV.json"
+# Wait for the new deployment to become active, so the smoke test checks the new version (not the previous one).
+for i in $(seq 1 90); do
+  STATE="$(aws lightsail get-container-services --region "$REGION" --service-name "$SERVICE" --query "containerServices[0].state" --output text)"
+  [ "$STATE" = "RUNNING" ] && break; echo "Service is $STATE; waiting ($i/90)"; sleep 10
+done
+[ "$STATE" = "RUNNING" ] || { echo "Deployment did not become RUNNING in time (state: $STATE)"; exit 1; }
+echo "version=$VERSION" >> "${GITHUB_OUTPUT:-/dev/null}"
 echo "Deployment created. Watch: aws lightsail get-container-services --service-name $SERVICE --region $REGION"
