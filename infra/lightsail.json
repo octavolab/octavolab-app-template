@@ -8,7 +8,6 @@
       "environment": {
         "NODE_ENV": "production",
         "PORT": "3000",
-        "APP_VERSION": "${APP_VERSION}",
         "REQUIRE_PRIVILEGED_2FA": "true"
       }
     },
