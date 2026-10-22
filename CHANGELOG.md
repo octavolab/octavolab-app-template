@@ -56,6 +56,10 @@ provider sandbox or a Lightsail deploy can confirm it.
 ### Independent re-audit (44/50) follow-ups
 - Supply chain: base and service images pinned by digest (`node:22-alpine`, `postgres:16-alpine`, `redis:7-alpine`, `semgrep/semgrep`); `lightsailctl` installed with `go install ...@v1.0.8` (version pinned, verified by the Go checksum database) instead of an unpinned `latest` download inside the jobs that hold AWS credentials.
 - CI boots the real image against PostgreSQL (`migrate deploy`, server start, `/api/health` ok, and no npm or build tools in the runtime image) before trivy.
+- Real web UI (apps/web), ES/EN, 390 to 1440 px, axe-checked: sign-in with 2FA step, catalog, cart, checkout (Idempotency-Key reused per cart; Stripe Elements only with a real client secret and publishable key, otherwise a labelled demo state with no card fields), "My orders" with cursor paging; staff 2FA enrollment (inline SVG QR, recovery codes shown once) and product management. Playwright E2E for both flows at 4 widths.
+- Seed creates `customer@example.com` only when `SEED_CUSTOMER_PASSWORD` is set; CI seeds with random per-run passwords and a per-run `TOTP_ENC_KEY`.
+- CSP allows only what Stripe Elements needs (`js.stripe.com`, `hooks.stripe.com`, `api.stripe.com`); `/auth/me` returns the email (unit).
+- Staging is live on Lightsail, deployed by CI through the OIDC role (no keys); smoke test passes.
 - `REQUIRE_OWNER_2FA` renamed `REQUIRE_PRIVILEGED_2FA` (it covers owners and admins); the old name is still accepted and the new one wins (unit). Route description and OpenAPI say "owners and admins".
 
 ## [0.7.1] - 2026-10-22

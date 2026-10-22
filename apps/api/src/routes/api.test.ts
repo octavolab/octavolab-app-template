@@ -191,7 +191,14 @@ describe("API: auth, tenancy, idempotency, webhooks", () => {
 describe("sessions: server-side revocation, audit and security logs", () => {
   it("logout revokes the session server-side: the old cookie no longer works", async () => {
     const c = cookieOf(await login("ops@a.co", "correct-horse-5"));
-    expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie: c } })).statusCode).toBe(200);
+    const me = await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie: c } });
+    expect(me.statusCode).toBe(200);
+    expect(me.json().email).toMatch(/@/); // the web header shows who is signed in after a reload
+    // CSP: Stripe Elements allowed, everything else stays 'self'; framing is never allowed.
+    const csp = String(me.headers["content-security-policy"]);
+    expect(csp).toContain("script-src 'self' https://js.stripe.com");
+    expect(csp).toContain("connect-src 'self' https://api.stripe.com");
+    expect(csp).toContain("frame-ancestors 'none'");
     const out = await app.inject({ method: "POST", url: "/api/v1/auth/logout", headers: { cookie: c } });
     expect(out.statusCode).toBe(200);
     const replay = await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie: c } });

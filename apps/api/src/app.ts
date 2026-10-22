@@ -39,9 +39,15 @@ export async function buildApp(opts: { logStream?: { write(line: string): void }
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  // connect-src also allows the Sentry ingest origin when the browser SDK is enabled (SENTRY_WEB_DSN or SENTRY_DSN).
+  // Stripe Elements (checkout) needs its script, its iframes and its API; nothing else leaves 'self'. connect-src also
+  // allows the Sentry ingest origin when the browser SDK is enabled (SENTRY_WEB_DSN or SENTRY_DSN).
   const ingest = sentryIngestOrigin();
-  await app.register(helmet, { contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], frameAncestors: ["'none'"], ...(ingest ? { connectSrc: ["'self'", ingest] } : {}) } } });
+  await app.register(helmet, { contentSecurityPolicy: { directives: {
+    defaultSrc: ["'self'"], frameAncestors: ["'none'"],
+    scriptSrc: ["'self'", "https://js.stripe.com"],
+    frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
+    connectSrc: ["'self'", "https://api.stripe.com", ...(ingest ? [ingest] : [])],
+  } } });
   await app.register(cors, { origin: [env.APP_URL], credentials: true });
   await app.register(cookie, { secret: env.SESSION_SECRET });
   // Rate-limit counters: Redis when REDIS_URL is set (shared by every API instance); otherwise process memory, which is

@@ -3,3 +3,5 @@
 # - resend.test.ts: fake Resend key used only against a stubbed fetch.
 913168b95fd81c9bc6fb2a7fc9b4843e14a9ef8c:apps/api/src/lib/totp.test.ts:generic-api-key:50
 bb165cf4e89cb6b784bf547737e9c19a42d3b2ee:packages/integrations/src/resend.test.ts:generic-api-key:6
+# - payments.test.ts: fake Stripe client secret shape used to test demo-mode detection.
+22cb797029c5514b6e987be3130325920107c604:apps/web/src/lib/payments.test.ts:generic-api-key:5

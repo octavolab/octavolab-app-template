@@ -40,8 +40,11 @@ jobs:
       - run: pnpm build
       - name: E2E (390/768/1024/1440 + axe); vite preview proxies /api to the API on :3000
         run: |
+          # Seed and 2FA key for this run only: random values, never committed (gitleaks stays clean).
+          export SEED_ADMIN_PASSWORD="$(openssl rand -base64 24)" SEED_CUSTOMER_PASSWORD="$(openssl rand -base64 24)" TOTP_ENC_KEY="$(openssl rand -base64 32)"
+          pnpm db:seed
           pnpm --filter api start & pnpm --filter web preview --port 5173 --strictPort &
-          sleep 5
+          for i in $(seq 1 30); do curl -fsS localhost:3000/api/health >/dev/null && break; sleep 1; done
           E2E_BASE_URL=http://localhost:5173 API_URL=http://localhost:3000 pnpm exec playwright install --with-deps chromium webkit && pnpm e2e
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
