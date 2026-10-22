@@ -246,7 +246,10 @@ describe("REQUIRE_PRIVILEGED_2FA", () => {
 
   it("the owner resets another user's 2FA in the same tenant only, never their own, and it is audited", async () => {
     const opsSid = await sidOf("ops@m.co");
-    await enable(opsSid);
+    const ops = await enable(opsSid);
+    // Since 0.7.5 operations staff cannot disable 2FA either while REQUIRE_PRIVILEGED_2FA=true (nothing is checked first).
+    const opsOff = await call("POST", "/api/v1/auth/2fa/disable", ops.sid, { password: PW, code: codeAt(ops.secret, STEP) });
+    expect([opsOff.statusCode, opsOff.json().code]).toEqual([409, "MFA_REQUIRED"]);
     expect(db.users.find((x) => x.id === "m-ops").totpEnabledAt).not.toBeNull();
     // Owner signs in with a code (STEP - 1 was used to activate; the refused disable checked nothing, so STEP is unused).
     const signed = await second(cookies(await password("owner@m.co")).mfa, { code: codeAt(ownerSecret, STEP) }, "10.96.0.1");

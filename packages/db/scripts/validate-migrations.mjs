@@ -12,7 +12,7 @@ const migrations = readdirSync(dir).filter((d) => statSync(path.join(dir, d)).is
 const db = new PGlite();
 
 // Migrations run when the app container starts (ADR 0005): the previous version must keep working on the new schema,
-// so every migration declares its kind on the first line of ROLLBACK.md. "Contract step" needs Jaime's approval in the PR.
+// so every migration declares its kind on the second line of ROLLBACK.md (the line after the title). "Contract step" needs Jaime's approval in the PR.
 const KINDS = ["Expand only", "Contract step", "Initial migration"];
 for (const m of migrations) {
   let plan = "";

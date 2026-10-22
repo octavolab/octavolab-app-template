@@ -108,11 +108,15 @@ jobs:
       - run: EXPECTED_VERSION=${{ steps.deploy.outputs.version }} infra/smoke.sh ${{ vars.STAGING_URL }}
   deploy-prod:
     needs: [quality, security, semgrep]
-    # Production gate that works on every GitHub plan: required reviewers on private repositories need GitHub Enterprise,
-    # so the job runs only when the tag was pushed by the approver named in the repository variable PROD_APPROVER
-    # (only admins can change variables). Empty or unset PROD_APPROVER = production never deploys. Approval in chat (N07) still applies.
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.PROD_APPROVER != '' && github.actor == vars.PROD_APPROVER
+    # Defense in depth only. A tag runs the workflow file of the tagged commit, so a writer could drop this `if`; the real
+    # gate is AWS: the prod role trusts only an OIDC subject that carries the approver (infra/README "Production gate").
+    # Required reviewers on private repositories need GitHub Enterprise. Empty or unset PROD_APPROVER = never deploys.
+    if: >-
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.PROD_APPROVER != ''
+      && github.actor == vars.PROD_APPROVER && github.triggering_actor == vars.PROD_APPROVER
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency: { group: deploy-prod, cancel-in-progress: false }
     environment: production
     permissions: { contents: read, id-token: write }
     steps:

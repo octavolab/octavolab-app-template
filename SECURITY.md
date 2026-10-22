@@ -57,7 +57,7 @@ Platform
 | 2.8.1 | Time-based OTP has a defined lifetime | 30 s step, +/- 1 step | Met (unit) |
 | 2.8.3 | Approved cryptographic algorithms for OTP | HMAC-SHA1 per RFC 6238 (apps' default) | Met (unit, RFC vectors) |
 | 2.8.4 | TOTP used only once within its validity period | `usersRepo.consumeTotpStep` | Met (unit; concurrency PG (CI)) |
-| 2.8.5 | Reused or failed OTP logged | `mfa_failed` audit row and log line | Met (unit); alerting on it: roadmap |
+| 2.8.5 | Reused or failed OTP logged | `mfa_failed` audit row and log line | Met (unit); alerting on bursts in code since 0.7.5 (`workers/alerts.ts`, unit), webhook delivery to be tested |
 | 3.2.1 | New session token on authentication | session issued only after the second factor | Met (unit) |
 | 3.3.3 | Terminate other sessions after an authentication factor change | activate, disable, reset bump `sessionVersion` | Met (unit) |
 | 4.2.1 | Protection against IDOR | `/me/orders` owner filter, staff routes role-gated | Met (unit; PG (CI)) |
@@ -75,12 +75,23 @@ Platform
 | Reviewed | The ASVS 4.0.3 mapping above, with the evidence in `docs/LOGBOOK.md` (green CI with image boot, trivy, semgrep, gitleaks, osv-scanner; OIDC deploy and version-checked smoke on staging) |
 | Signed by | Jaime Blum, CTO (approval given in writing in the engineering session: "firmo ASVS"; confirmed by Jaime merging PR #18 from his own GitHub account, 2026-10-22 13:06 UTC, merge commit 4c27ce7) |
 | Date | 2026-10-22 |
-| Accepted open items (must close before production) | passkeys/WebAuthn; restore test (procedure in `docs/runbook.md`, run by Jaime) |
-| Closed in 0.7.4 and 0.7.5 | alerting on `mfa_failed` and `outbox_dead_letter` (worker, webhook, unit); IAM `env` tag per environment (policy, applied by Jaime); 2FA required for operations staff (unit) |
+| Accepted open items (must close before production) | passkeys/WebAuthn; alerting on `mfa_failed` and `outbox_dead_letter`; restore test; IAM `env` tag per environment |
 | Next review | Before the first production deploy, or in 90 days, whichever comes first |
 
+### Amendment 1 (0.7.4 and 0.7.5, 2026-10-22), pending Jaime's re-sign
+The signed table above stays as signed. Changes since, for the next review:
+| Item | Status | Evidence |
+|---|---|---|
+| Alerting on `mfa_failed` and `outbox_dead_letter` | Implemented in code (worker every 60 s, Slack-format webhook, `ALERT_WEBHOOK_URL` required in live mode) | unit (`workers/alerts.test.ts`); delivery to a real webhook not yet tested |
+| IAM `env` tag per environment and `ProjectSecrets` per environment | Policy file ready (`infra/iam-policy-project.json`) | Not yet applied in AWS: Jaime applies it after tagging the staging resources `env=staging` |
+| 2FA required for operations staff | Implemented | unit (`routes/mfa.test.ts`) |
+| Production deploy gate | AWS trust on a customized OIDC subject with the approver (infra/README "Production gate"); workflow `if` as defense in depth | Not yet configured: needs Jaime (GitHub OIDC customization and the prod role trust) |
+| Restore test | Procedure in `docs/runbook.md` | Not yet run |
+| Passkeys/WebAuthn | Open | none |
+| Re-signed by | pending | |
+
 ## Roadmap before any production deploy (Módulo C 6.2)
-WebAuthn or passkeys as a phishing-resistant factor (TOTP is not); alerting on `mfa_failed` bursts; ZAP baseline nightly against staging (job wired, needs `STAGING_URL`); restore test; alerting on the `outbox_dead_letter` log line; Redis for rate limits before scaling the API beyond one instance.
+WebAuthn or passkeys as a phishing-resistant factor (TOTP is not); a real delivery test of the alert webhook (code in 0.7.5); ZAP baseline nightly against staging (job wired, needs `STAGING_URL`); restore test (procedure in the runbook); applying the 0.7.4 IAM policy and the production gate in AWS and GitHub; Redis for rate limits before scaling the API beyond one instance.
 
 ## Verified only in a real CI run or Lightsail deploy
 The authoring environment cannot download the Prisma engines or reach GitHub Actions and AWS. Not executed there: the PostgreSQL and Redis integration tests (including `self-service-mfa.int.test.ts`: unique index, foreign keys, cursor pagination and the concurrent single-use updates for TOTP steps and recovery codes), a real Resend send, `prisma migrate diff --exit-code` drift check, typecheck of code that needs the generated Prisma client, Playwright e2e, the scanners, the Docker build, OIDC role assumption, the IAM tag conditions and the deploy and smoke scripts. Record the outcome of the first real run in `docs/learnings.md`.

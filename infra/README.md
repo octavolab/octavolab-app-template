@@ -33,15 +33,22 @@ aws iam create-policy --policy-name "acme-deploy-staging" --policy-document file
 - Write actions (`RegisterContainerImage`, `CreateContainerServiceDeployment`, `CreateRelationalDatabaseSnapshot`) are allowed only on resources tagged `project=<PROJECT_NAME>` AND `env=<ENV_NAME>` (since 0.7.4), so the staging role cannot deploy to production. Tag the container services and the database with both tags when you create them. **Existing resources created before 0.7.4 carry only `project`: add `env=staging` to the staging service and database BEFORE applying the new policy, or the next staging deploy fails with AccessDenied.**
 
 ## Production gate (any GitHub plan)
-Required reviewers on environments of private repositories need GitHub Enterprise (docs.github.com, "Managing environments for deployment", read 22 Oct 2026). `deploy-prod` therefore runs only when the `v*` tag was pushed by the GitHub user named in the repository variable `PROD_APPROVER`; with the variable empty or unset, production never deploys. Only repository admins can change variables. The chat approval (N07) still applies before the tag is pushed.
-- Destructive actions are denied explicitly.
+Required reviewers on environments of private repositories need GitHub Enterprise (docs.github.com, "Managing environments for deployment", read 22 Oct 2026), and a `v*` tag runs the workflow file of the tagged commit, so an `if:` in `ci.yml` alone can be removed by anyone with write access. The gate therefore lives in AWS, outside the repository:
+1. Customize the repository's OIDC subject to include the actor (Jaime, once; GitHub REST `PUT /repos/<org>/<repo>/actions/oidc/customization/sub` with `{"use_default": false, "include_claim_keys": ["repo", "context", "actor"]}`, or Settings → Actions → OIDC if offered). The subject becomes `repo:<org>/<repo>:environment:<env>:actor:<login>` [verify the exact format in the first token, docs.github.com "OpenID Connect reference", on the day].
+2. BEFORE step 1 takes effect, change the staging role trust to `StringLike` `repo:<org>/<repo>:environment:staging:actor:*`, or staging deploys stop.
+3. The prod role `<project>-deploy-prod` trusts only `StringEquals` `repo:<org>/<repo>:environment:production:actor:<approver login>`. A tag pushed by anyone else, or a workflow edited to skip the `if`, gets no AWS credentials.
+4. Re-runs: `github.actor` stays the original pusher on a re-run, so the workflow also checks `github.triggering_actor`; the AWS subject carries the actor of the run [verify whether a re-run by another user changes the `actor` claim, and record it in docs/learnings.md].
+5. Where the plan allows it (GitHub Pro or Team), also add a tag ruleset on `refs/tags/v*` restricted to admins, and a deployment-tag policy `v*` on the `production` environment.
+The workflow `if` (`PROD_APPROVER`, actor and triggering actor) is defense in depth only. The chat approval (N07) still applies before the tag is pushed.
+
+Production resources are tagged `project=<PROJECT_NAME>` and `env=prod` (the value `deploy.sh` receives, not the GitHub environment name `production`); the production policy is created with `ENV_NAME=prod`.
 
 ## Verified locally vs only in a real run
 Verified locally: the policy is valid JSON; the Dockerfile CMD paths match the pnpm layout of this repo (`packages/db/node_modules/.bin/prisma`, `apps/api/dist/server.js`). The action names were taken from the Lightsail Service Authorization Reference but have not been exercised against AWS.
 
 Only a real AWS run confirms (check on the first staging deploy and record the result in `docs/learnings.md`):
 1. `aws lightsail push-container-image` succeeds with this policy (registry login + register image on a tagged service).
-2. `aws:ResourceTag/project` is evaluated for `RegisterContainerImage`, `CreateContainerServiceDeployment` and `CreateRelationalDatabaseSnapshot`: deploying to an UNTAGGED service must fail with AccessDenied, and to the tagged one must succeed. If an action returns AccessDenied on the tagged resource, Lightsail does not evaluate the tag for it: move it to a statement scoped by the resource ARN instead and note it here.
+2. `aws:ResourceTag/project` and `aws:ResourceTag/env` are evaluated for `RegisterContainerImage`, `CreateContainerServiceDeployment` and `CreateRelationalDatabaseSnapshot`: deploying to an UNTAGGED service must fail with AccessDenied, the staging role deploying to the `env=prod` service must fail with AccessDenied, and the matching service must succeed. If an action returns AccessDenied on the tagged resource, Lightsail does not evaluate the tag for it: move it to a statement scoped by the resource ARN instead and note it here.
 3. IAM Access Analyzer (`aws accessanalyzer validate-policy --policy-type IDENTITY_POLICY`) returns no errors.
 4. The OIDC trust policy rejects a workflow run from another repository or environment.
 5. The image builds with the correct Prisma engine (`linux-musl-openssl-3.0.x`) and `prisma migrate deploy` runs at container start before the API listens.

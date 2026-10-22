@@ -10,6 +10,11 @@ Production readiness (SECURITY.md accepted items).
 - Runbook: step-by-step restore test with measured recovery time; snapshot before every production deploy; "Alerts" section.
 ### Changed
 - `REQUIRE_PRIVILEGED_2FA=true` now also forces the `operations` role to enroll and keep 2FA (it reads every order of the tenant) (unit).
+### Fixed after the independent review (same release)
+- Production gate moved to AWS: the prod role trusts only an OIDC subject customized to carry the approver; the workflow `if` (now also `github.triggering_actor`) is defense in depth (infra/README "Production gate"). `deploy-prod` gets `timeout-minutes: 45` and a concurrency group; `deploy.sh prod` snapshots the database first and fails closed.
+- Alerts: the cooldown starts only after a successful delivery; dead letters are counted since the last delivered alert.
+- SECURITY.md: the signed sign-off table is restored as signed; changes go to "Amendment 1", pending Jaime's re-sign.
+- Docs: `env=prod` tag for production resources; negative IAM test; ADR 0005 lock note; restore test with `INTEGRATIONS_MODE=fake`; Slack is the webhook format known to work.
 ### Not done (stays open)
 - Node 24: the `node:24-alpine` digest could not be resolved from the build session (no registry access); Dependabot (docker) proposes it after its cooldown. Node 22 is in maintenance until April 2027.
 - Restore test: procedure written; it runs in Jaime's AWS session with a temporary paid database.

@@ -26,7 +26,7 @@ describe("operational alerts", () => {
     expect(await alerts.checkAlerts(t.d)).toEqual([]);
     const since = new Date(NOW.getTime() - 15 * 60_000);
     expect(t.auditCount).toHaveBeenCalledWith({ where: { action: "mfa_failed", createdAt: { gte: since } } });
-    expect(t.outboxCount).toHaveBeenCalledWith({ where: { deadLetteredAt: { gte: since } } });
+    expect(t.outboxCount).toHaveBeenCalledWith({ where: { deadLetteredAt: { gt: since } } });
     expect(t.log.error).not.toHaveBeenCalled();
   });
 
@@ -52,7 +52,7 @@ describe("operational alerts", () => {
     expect(noHook.fetchMock).not.toHaveBeenCalled();
 
     const down = deps({ mfa: 0, dead: 1 }, { webhook: "https://hooks.example.test/x", fetchImpl: async () => { throw new Error("ECONNREFUSED"); } });
-    expect((await alerts.checkAlerts(down.d)).length).toBe(1);
+    expect((await alerts.checkAlerts(down.d)).length).toBe(0); // not delivered: retried on the next tick
     expect(down.log.error).toHaveBeenCalledWith(expect.objectContaining({ event: "alert_delivery_failed" }), expect.any(String));
 
     const bad = deps({ mfa: 0, dead: 1 }, { webhook: "https://hooks.example.test/x", fetchImpl: async () => new Response(null, { status: 500 }) });
@@ -72,5 +72,22 @@ describe("operational alerts", () => {
   it("default deps read the environment and start with no cooldown history", () => {
     const d = alerts.defaultAlertDeps({ warn: vi.fn(), error: vi.fn() });
     expect([d.webhookUrl, d.mfaThreshold, d.lastFired.size]).toEqual([undefined, 10, 0]);
+  });
+  it("a failed delivery does not start the cooldown: the alert is retried on the next tick", async () => {
+    let fail = true;
+    const t = deps({ mfa: 0, dead: 1 }, { webhook: "https://hooks.example.test/x", fetchImpl: async () => (fail ? new Response(null, { status: 503 }) : new Response(null, { status: 200 })) });
+    expect(await alerts.checkAlerts(t.d)).toEqual([]);
+    expect(t.d.lastFired.size).toBe(0);
+    fail = false;
+    t.advance(60_000);
+    expect((await alerts.checkAlerts(t.d)).map((a) => a.alert)).toEqual(["outbox_dead_letter"]);
+  });
+
+  it("after the cooldown, dead letters are counted since the last delivered alert, so none are lost", async () => {
+    const t = deps({ mfa: 0, dead: 1 }, { webhook: "https://hooks.example.test/x" });
+    await alerts.checkAlerts(t.d);
+    t.advance(61 * 60_000);
+    await alerts.checkAlerts(t.d);
+    expect(t.outboxCount).toHaveBeenLastCalledWith({ where: { deadLetteredAt: { gt: NOW } } });
   });
 });

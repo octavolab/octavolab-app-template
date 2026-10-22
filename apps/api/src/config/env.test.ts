@@ -67,7 +67,9 @@ describe("environment schema", () => {
   it("alerts: ALERT_WEBHOOK_URL is required in live mode, must be https, and the mfa threshold defaults to 10", () => {
     const live = { ...base, NODE_ENV: "production", INTEGRATIONS_MODE: "live" };
     expect(parseEnv(live).error?.flatten().fieldErrors.ALERT_WEBHOOK_URL?.[0]).toMatch(/required when INTEGRATIONS_MODE=live/);
-    expect(parseEnv({ ...live, ALERT_WEBHOOK_URL: "http://hooks.example.com/x" }).error?.flatten().fieldErrors.ALERT_WEBHOOK_URL?.[0]).toMatch(/https/);
+    const plain = parseEnv({ ...live, ALERT_WEBHOOK_URL: "http://hooks.example.com/secret-token-123" });
+    expect(plain.error?.flatten().fieldErrors.ALERT_WEBHOOK_URL?.[0]).toMatch(/https/);
+    expect(JSON.stringify(plain.error?.flatten())).not.toContain("secret-token-123"); // the URL is a credential
     const ok = parseEnv({ ...live, ALERT_WEBHOOK_URL: "https://hooks.example.com/x" });
     expect([ok.success, ok.data?.MFA_FAILED_ALERT_THRESHOLD]).toEqual([true, 10]);
     expect(parseEnv({ ...base, NODE_ENV: "production", INTEGRATIONS_MODE: "sandbox" }).success).toBe(true);

@@ -9,6 +9,14 @@ SERVICE="${LIGHTSAIL_SERVICE:-${PROJECT_NAME:?set PROJECT_NAME}-$ENV}"
 REGION="${AWS_REGION:-eu-west-2}"
 VERSION="$(git describe --tags --always)"
 echo "Deploying $VERSION to $SERVICE ($REGION)"
+# Production: manual snapshot of the database before anything changes (migrations run at container start, ADR 0005).
+# Fails closed: no snapshot, no deploy. The deploy role may snapshot only databases tagged project and env.
+if [ "$ENV" = "prod" ]; then
+  DB="${LIGHTSAIL_DB:-$SERVICE-db}"
+  SNAP="$DB-pre-$(echo "$VERSION" | tr -c 'A-Za-z0-9\n' '-')-$(date -u +%Y%m%d%H%M)"
+  aws lightsail create-relational-database-snapshot --region "$REGION" --relational-database-name "$DB" --relational-database-snapshot-name "$SNAP" > /dev/null
+  echo "Snapshot requested: $SNAP"
+fi
 # -q keeps the deploy log short enough for GitHub to show it whole (errors are still printed).
 docker build -q -f infra/Dockerfile -t "$SERVICE:app" .
 aws lightsail push-container-image --region "$REGION" --service-name "$SERVICE" --label app --image "$SERVICE:app"
