@@ -34,3 +34,9 @@ With `REDIS_URL` set, a Redis outage keeps ordinary routes serving (rate limits 
 - The deploy role reads it (`ReadProjectSecrets` in `infra/iam-policy-project.json`, after the `${PROJECT_NAME}` substitution). `infra/deploy.sh` merges it into the `app` container (the worker inherits it) and logs only "Secrets: merged from Secrets Manager", never values.
 - Rotate: update the secret value, then redeploy (push to `main` for staging). For `TOTP_ENC_KEY` follow the rotation note above.
 - Cost: AWS lists a per-secret monthly price; check it on the console before creating (N07).
+
+## First access to a fresh environment (no users yet)
+1. In Lightsail → service → Deployments → Modify and redeploy → container `app` → add `BOOTSTRAP_OWNER_EMAIL` (your email) and `BOOTSTRAP_OWNER_PASSWORD` (12+ characters, chosen and typed by Jaime, stored in the password manager). Save and deploy.
+2. At start the API creates the demo tenant, its demo price list and that owner (log: `bootstrap_owner_created`). An existing user is never modified.
+3. Open the staging URL, sign in, and enroll 2FA with an authenticator app (`REQUIRE_PRIVILEGED_2FA=true`). Keep the recovery codes.
+4. Modify and redeploy again removing both `BOOTSTRAP_OWNER_*` variables.
