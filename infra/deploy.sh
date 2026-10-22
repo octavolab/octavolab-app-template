@@ -9,7 +9,8 @@ SERVICE="${LIGHTSAIL_SERVICE:-${PROJECT_NAME:?set PROJECT_NAME}-$ENV}"
 REGION="${AWS_REGION:-eu-west-2}"
 VERSION="$(git describe --tags --always)"
 echo "Deploying $VERSION to $SERVICE ($REGION)"
-docker build -f infra/Dockerfile -t "$SERVICE:app" .
+# -q keeps the deploy log short enough for GitHub to show it whole (errors are still printed).
+docker build -q -f infra/Dockerfile -t "$SERVICE:app" .
 aws lightsail push-container-image --region "$REGION" --service-name "$SERVICE" --label app --image "$SERVICE:app"
 sed -e "s/:SERVICE_NAME.app.latest/:$SERVICE.app.latest/g" -e "s/\${APP_VERSION}/$VERSION/g" infra/lightsail.json > /tmp/lightsail.$ENV.json
 # Lightsail replaces the whole deployment: carry over the environment of the ACTIVE deployment (secrets never live in this repo).
@@ -21,7 +22,7 @@ aws lightsail get-container-service-deployments --region "$REGION" --service-nam
 SECRET_ID="${SECRET_ID:-${PROJECT_NAME:-$SERVICE}/$ENV}"
 umask 077
 if aws secretsmanager get-secret-value --region "$REGION" --secret-id "$SECRET_ID" --query SecretString --output text > "/tmp/secrets.$ENV.json" 2> "/tmp/secrets.$ENV.err"; then
-  echo "Secrets: merged from Secrets Manager ($SECRET_ID)"
+  echo "Secrets: merged from Secrets Manager ($SECRET_ID)"; echo "::notice title=Secrets Manager in use::merged from $SECRET_ID"
 elif grep -q "ResourceNotFoundException" "/tmp/secrets.$ENV.err" && [ "$ENV" != "prod" ] && [ "${SEED_SECRET_FROM_ACTIVE:-1}" = "1" ] \
   && python3 - "$ENV" <<'PY'
 # One-time seed outside production: the secret does not exist yet, so create it from the ACTIVE app container's
@@ -39,6 +40,7 @@ then
        --tags "Key=project,Value=${PROJECT_NAME:-$SERVICE}" "Key=env,Value=$ENV" --query Name --output text 2> "/tmp/secrets.$ENV.err"; then
     mv "/tmp/seed.$ENV.json" "/tmp/secrets.$ENV.json"
     echo "Secrets: created $SECRET_ID from the active environment and merged from Secrets Manager ($SECRET_ID)"
+    echo "::notice title=Secrets Manager in use::created $SECRET_ID from the active environment (one-time seed) and merged"
   else
     rm -f "/tmp/seed.$ENV.json"; echo "{}" > "/tmp/secrets.$ENV.json"
     echo "::warning title=Secrets Manager not in use::could not create $SECRET_ID (the deploy role needs the ProjectSecrets statement); staging keeps the Lightsail environment (ASVS 6.4.1 Partial)"
