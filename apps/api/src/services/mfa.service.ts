@@ -35,9 +35,9 @@ export function secretBox(): SecretBox {
 
 export const mfaEnabled = (u: Pick<UserRow, "totpEnabledAt">) => Boolean(u.totpEnabledAt);
 
-/** Privileged roles (owner and admin: they change prices, roles and orders) must enroll before using the app when REQUIRE_OWNER_2FA=true. */
+/** Privileged roles (owner and admin: they change prices, roles and orders) must enroll before using the app when REQUIRE_PRIVILEGED_2FA=true. */
 export const PRIVILEGED_MFA_ROLES: readonly Session["role"][] = ["owner", "admin"];
-export const enrollmentRequired = (u: Pick<UserRow, "role" | "totpEnabledAt">) => PRIVILEGED_MFA_ROLES.includes(u.role) && env.REQUIRE_OWNER_2FA && !mfaEnabled(u);
+export const enrollmentRequired = (u: Pick<UserRow, "role" | "totpEnabledAt">) => PRIVILEGED_MFA_ROLES.includes(u.role) && env.REQUIRE_PRIVILEGED_2FA && !mfaEnabled(u);
 
 function assertMfaRole(u: Pick<UserRow, "role">) {
   if (!MFA_ROLES.includes(u.role)) throw new AppError("MFA_NOT_AVAILABLE", "Two-factor authentication is available for staff and owner accounts", 403);
@@ -100,12 +100,12 @@ export async function recordFailure(userId: string, stage: "login" | "activate" 
   await auditRepo.record({ entity: "User", entityId: userId, action: "mfa_failed", actor: `user:${userId}`, after: { stage, reason, ...meta } });
 }
 
-/** Disable needs the password AND a second factor; owners cannot disable it while REQUIRE_OWNER_2FA=true. */
+/** Disable needs the password AND a second factor; owners and admins cannot disable it while REQUIRE_PRIVILEGED_2FA=true. */
 export async function disable(userId: string, password: string, f: Factor, meta: Meta) {
   secretBox();
   const u = await loadUser(userId);
   if (!mfaEnabled(u)) throw new AppError("MFA_NOT_ENABLED", "Two-factor authentication is not enabled", 409);
-  if (PRIVILEGED_MFA_ROLES.includes(u.role) && env.REQUIRE_OWNER_2FA) throw new AppError("MFA_REQUIRED", "Owners and admins must keep two-factor authentication enabled", 409);
+  if (PRIVILEGED_MFA_ROLES.includes(u.role) && env.REQUIRE_PRIVILEGED_2FA) throw new AppError("MFA_REQUIRED", "Owners and admins must keep two-factor authentication enabled", 409);
   const passwordOk = await argon2.verify(u.passwordHash, password).catch(() => false);
   const method = passwordOk ? await verifySecondFactor(u, f) : null;
   if (!method) {

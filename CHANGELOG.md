@@ -1,6 +1,13 @@
 # Changelog
 All notable changes to this project are documented here (Keep a Changelog, semver).
 
+## [0.7.2] - 2026-10-22
+
+### Independent re-audit (44/50) follow-ups
+- Supply chain: base and service images pinned by digest (`node:22-alpine`, `postgres:16-alpine`, `redis:7-alpine`, `semgrep/semgrep`); `lightsailctl` installed with `go install ...@v1.0.8` (version pinned, verified by the Go checksum database) instead of an unpinned `latest` download inside the jobs that hold AWS credentials.
+- CI boots the real image against PostgreSQL (`migrate deploy`, server start, `/api/health` ok, and no npm or build tools in the runtime image) before trivy.
+- `REQUIRE_OWNER_2FA` renamed `REQUIRE_PRIVILEGED_2FA` (it covers owners and admins); the old name is still accepted and the new one wins (unit). Route description and OpenAPI say "owners and admins".
+
 ## [0.7.1] - 2026-10-22
 
 ### Fixed after the first real CI run (run 39741290733)

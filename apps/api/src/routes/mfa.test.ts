@@ -217,11 +217,11 @@ describe("2FA enrollment and activation", () => {
 
 let ownerSecret = "";
 
-describe("REQUIRE_OWNER_2FA", () => {
-  afterAll(() => { env.REQUIRE_OWNER_2FA = false; });
+describe("REQUIRE_PRIVILEGED_2FA", () => {
+  afterAll(() => { env.REQUIRE_PRIVILEGED_2FA = false; });
 
   it("an owner without 2FA can only enroll; after activation everything works and 2FA cannot be disabled", async () => {
-    env.REQUIRE_OWNER_2FA = true;
+    env.REQUIRE_PRIVILEGED_2FA = true;
     const login = await password("owner@m.co");
     expect(login.json()).toMatchObject({ role: "owner", mfaEnrollmentRequired: true });
     const sid = cookies(login).sid!;

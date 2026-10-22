@@ -11,8 +11,8 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     services:
-      postgres: { image: postgres:16-alpine, env: { POSTGRES_USER: app, POSTGRES_PASSWORD: app, POSTGRES_DB: app }, ports: ["5432:5432"], options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10 }
-      redis: { image: redis:7-alpine, ports: ["6379:6379"] }
+      postgres: { image: "postgres:16-alpine@sha256:deb28ee471183cb0c303113dac9b2433c51eeeeb678def7af9a9ec5820367815", env: { POSTGRES_USER: app, POSTGRES_PASSWORD: app, POSTGRES_DB: app }, ports: ["5432:5432"], options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10 }
+      redis: { image: "redis:7-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1", ports: ["6379:6379"] }
     env:
       DATABASE_URL: postgresql://app:app@localhost:5432/app
       REDIS_URL: redis://localhost:6379
@@ -59,13 +59,27 @@ jobs:
         run: docker run --rm -v "$PWD:/src" ghcr.io/google/osv-scanner:v1.9.1 --lockfile=/src/pnpm-lock.yaml
       - name: build image
         run: docker build -f infra/Dockerfile -t app:ci .
+      # Boot the real image against PostgreSQL: proves migrate deploy and server start exactly as in Lightsail.
+      - name: boot image (migrate + health)
+        run: |
+          docker network create ci
+          docker run -d --name db --network ci -e POSTGRES_USER=app -e POSTGRES_PASSWORD=app -e POSTGRES_DB=app "postgres:16-alpine@sha256:deb28ee471183cb0c303113dac9b2433c51eeeeb678def7af9a9ec5820367815"
+          for i in $(seq 1 30); do docker exec db pg_isready -U app && break; sleep 2; done
+          docker run -d --name app --network ci -p 3000:3000 \
+            -e NODE_ENV=production -e INTEGRATIONS_MODE=fake -e DATABASE_URL=postgresql://app:app@db:5432/app \
+            -e SESSION_SECRET="$(openssl rand -base64 48)" -e TOTP_ENC_KEY="$(openssl rand -base64 32)" -e REQUIRE_PRIVILEGED_2FA=true \
+            -e APP_URL=http://localhost:3000 -e OPS_EMAIL=ops@ci.invalid app:ci
+          for i in $(seq 1 30); do curl -fsS localhost:3000/api/health | tee /tmp/h.json | grep -q '"ok":true' && break; sleep 2; done
+          docker logs app | tail -20
+          grep -q '"ok":true' /tmp/h.json
+          docker exec app sh -c 'test ! -e /usr/local/bin/npm && ! ls node_modules/.pnpm | grep -qE "^(esbuild|vite|typescript)@"'
       - name: trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with: { image-ref: app:ci, severity: "HIGH,CRITICAL", exit-code: "1", ignore-unfixed: true }
   semgrep:
     # semgrep/semgrep-action is archived; the official container runs the CLI directly.
     runs-on: ubuntu-latest
-    container: { image: semgrep/semgrep }
+    container: { image: "semgrep/semgrep@sha256:3db5c7af55eb1f512eac0abf0ab69a97b52c74b5e9a27314c221aee1a78d7ab2" } # latest as of 2026-10-22
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: semgrep scan --config p/owasp-top-ten --error
@@ -81,7 +95,7 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with: { role-to-assume: "${{ secrets.AWS_ROLE_STAGING }}", aws-region: eu-west-2 }
       - name: lightsailctl plugin
-        run: curl -fsSL "https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl" -o /usr/local/bin/lightsailctl && chmod +x /usr/local/bin/lightsailctl
+        run: go install github.com/aws/lightsailctl@v1.0.8 && echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH" # pinned; the Go checksum database verifies the module
       - run: PROJECT_NAME=${{ vars.PROJECT_NAME }} infra/deploy.sh staging
       - run: infra/smoke.sh ${{ vars.STAGING_URL }}
   deploy-prod:
@@ -95,7 +109,7 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with: { role-to-assume: "${{ secrets.AWS_ROLE_PROD }}", aws-region: eu-west-2 }
       - name: lightsailctl plugin
-        run: curl -fsSL "https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl" -o /usr/local/bin/lightsailctl && chmod +x /usr/local/bin/lightsailctl
+        run: go install github.com/aws/lightsailctl@v1.0.8 && echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH" # pinned; the Go checksum database verifies the module
       - run: PROJECT_NAME=${{ vars.PROJECT_NAME }} infra/deploy.sh prod
       - run: infra/smoke.sh ${{ vars.PROD_URL }}
   zap-nightly:
