@@ -9,13 +9,17 @@
         "NODE_ENV": "production",
         "PORT": "3000",
         "APP_VERSION": "${APP_VERSION}",
-        "REQUIRE_OWNER_2FA": "true"
+        "REQUIRE_OWNER_2FA": "true",
+        "APP_ENV": "${APP_ENV}"
       }
     },
     "worker": {
       "image": ":SERVICE_NAME.app.latest",
       "command": [
         "node",
+        "--enable-source-maps",
+        "--import",
+        "./apps/api/dist/instrument.js",
         "apps/api/dist/workers/outbox.worker.js"
       ],
       "environment": {

@@ -11,6 +11,8 @@ COPY apps ./apps
 COPY packages ./packages
 RUN pnpm install --frozen-lockfile
 RUN pnpm db:generate && pnpm build
+# Browser source maps are only for the Sentry upload in CI (vite builds them "hidden"); never serve them.
+RUN find apps/web/dist -name '*.map' -delete
 # Runtime gets production dependencies only: build tools (esbuild, vite, typescript, vitest) never ship.
 # A fresh prod-only install from the store (offline) leaves no dev packages in node_modules/.pnpm;
 # the Prisma CLI is a production dependency of packages/db because the app container runs migrate deploy.
@@ -33,4 +35,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://localhost:3000/api/health || exit 1
 # The Prisma CLI is a dependency of packages/db (pnpm keeps its bin there, not in the root node_modules/.bin).
 # The worker container overrides this command (infra/lightsail.json), so only the app container migrates.
-CMD ["sh", "-c", "packages/db/node_modules/.bin/prisma migrate deploy --schema packages/db/prisma/schema.prisma && node apps/api/dist/server.js"]
+# --import preloads Sentry (a no-op without SENTRY_DSN); --enable-source-maps maps server stack traces to the TypeScript.
+CMD ["sh", "-c", "packages/db/node_modules/.bin/prisma migrate deploy --schema packages/db/prisma/schema.prisma && exec node --enable-source-maps --import ./apps/api/dist/instrument.js apps/api/dist/server.js"]
