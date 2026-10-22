@@ -1,6 +1,14 @@
 # Changelog
 All notable changes to this project are documented here (Keep a Changelog, semver).
 
+## [0.7.1] - 2026-10-22
+
+### Fixed after the first real CI run (run 39741290733)
+- Every GitHub Action is pinned to a full commit SHA with the tag as a comment (semgrep `github-actions-mutable-action-tag`); `aquasecurity/trivy-action@0.28.0` no longer resolves and moves to v0.36.0.
+- pnpm 10.34.7 (`packageManager`); `pnpm/action-setup` reads it, so the conflicting `version: 9` input is gone.
+- Supply-chain settings in `pnpm-workspace.yaml`: `minimumReleaseAge: 10080`, `trustPolicy: no-downgrade`, `blockExoticSubdeps: true`, and `onlyBuiltDependencies` for the reviewed packages with install scripts (Prisma, argon2, esbuild, msgpackr-extract).
+- AES-256-GCM: the authentication tag length is fixed at 16 bytes on both sides and a truncated tag is rejected before decryption (semgrep `gcm-no-tag-length`; unit).
+
 ## [0.7.0] - 2026-10-22
 
 ### Security follow-ups from the independent re-audit

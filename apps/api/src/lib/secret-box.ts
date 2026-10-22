@@ -1,5 +1,8 @@
 import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto";
 
+/** AES-256-GCM authentication tag: always the full 128 bits (NIST SP 800-38D). */
+const GCM_TAG_BYTES = 16;
+
 /**
  * Encryption at rest for TOTP secrets (ASVS 6.2: approved authenticated encryption; key outside the database).
  * Master key: TOTP_ENC_KEY, 32 random bytes in base64 (`openssl rand -base64 32`). Two sub-keys are derived with HKDF-SHA256
@@ -23,7 +26,7 @@ export function createSecretBox(masterB64: string) {
   return {
     encrypt(plaintext: Buffer, userId: string): string {
       const iv = randomBytes(12);
-      const c = createCipheriv("aes-256-gcm", encKey, iv);
+      const c = createCipheriv("aes-256-gcm", encKey, iv, { authTagLength: GCM_TAG_BYTES });
       c.setAAD(Buffer.from(`user:${userId}`));
       const ct = Buffer.concat([c.update(plaintext), c.final()]);
       return ["v1", iv.toString("base64url"), c.getAuthTag().toString("base64url"), ct.toString("base64url")].join(".");
@@ -32,9 +35,12 @@ export function createSecretBox(masterB64: string) {
     decrypt(value: string, userId: string): Buffer {
       const [v, iv, tag, ct] = value.split(".");
       if (v !== "v1" || !iv || !tag || !ct) throw new Error("unsupported ciphertext");
-      const d = createDecipheriv("aes-256-gcm", encKey, Buffer.from(iv, "base64url"));
+      const authTag = Buffer.from(tag, "base64url");
+      // A truncated tag would weaken GCM forgery resistance: accept only the full 16-byte tag.
+      if (authTag.length !== GCM_TAG_BYTES) throw new Error("unsupported ciphertext");
+      const d = createDecipheriv("aes-256-gcm", encKey, Buffer.from(iv, "base64url"), { authTagLength: GCM_TAG_BYTES });
       d.setAAD(Buffer.from(`user:${userId}`));
-      d.setAuthTag(Buffer.from(tag, "base64url"));
+      d.setAuthTag(authTag);
       return Buffer.concat([d.update(Buffer.from(ct, "base64url")), d.final()]);
     },
     /** Keyed hash of a normalized recovery code: a leaked database alone cannot be brute-forced offline. */

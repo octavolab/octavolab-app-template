@@ -1,3 +1,19 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# Supply-chain hardening (pnpm >= 10.21). Semgrep p/owasp-top-ten checks these.
+# Wait 7 days before installing a newly published version.
+minimumReleaseAge: 10080
+# Refuse an update whose provenance or trust evidence is weaker than the version it replaces.
+trustPolicy: no-downgrade
+# Transitive dependencies may only come from the registry (no git or tarball URLs).
+blockExoticSubdeps: true
+# pnpm 10 blocks install scripts by default; only these reviewed packages may run them.
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - prisma
+  - argon2
+  - esbuild
+  - msgpackr-extract

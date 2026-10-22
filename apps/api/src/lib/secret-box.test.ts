@@ -25,6 +25,9 @@ describe("secret box (AES-256-GCM at rest)", () => {
     expect(() => box.decrypt([parts[0], parts[1], parts[2], flipped.toString("base64url")].join("."), "u1")).toThrow();
     expect(() => createSecretBox(Buffer.alloc(32, 1).toString("base64")).decrypt(c, "u1")).toThrow();
     expect(() => box.decrypt("JBSWY3DPEHPK3PXP", "u1")).toThrow("unsupported ciphertext"); // a legacy plaintext value is never used
+    // A truncated authentication tag is rejected before decryption (GCM forgery resistance).
+    const shortTag = Buffer.from(parts[2]!, "base64url").subarray(0, 4).toString("base64url");
+    expect(() => box.decrypt([parts[0], parts[1], shortTag, parts[3]].join("."), "u1")).toThrow("unsupported ciphertext");
   });
 
   it("requires a 32-byte base64 master key", () => {
