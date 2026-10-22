@@ -9,7 +9,7 @@
         "NODE_ENV": "production",
         "PORT": "3000",
         "APP_VERSION": "${APP_VERSION}",
-        "REQUIRE_OWNER_2FA": "true",
+        "REQUIRE_PRIVILEGED_2FA": "true",
         "APP_ENV": "${APP_ENV}"
       }
     },
@@ -27,7 +27,7 @@
       }
     },
     "redis": {
-      "image": "redis:7-alpine",
+      "image": "redis:7-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1",
       "ports": {
         "6379": "TCP"
       }

@@ -81,17 +81,20 @@ describe("environment schema", () => {
     expect(parseEnv({ ...base, MESSAGING_FROM: "noreply@example.com" }).success).toBe(true);
   });
 
-  it("2FA: REQUIRE_OWNER_2FA defaults to false, needs TOTP_ENC_KEY when true, and the key must be 32 bytes in base64", () => {
+  it("2FA: REQUIRE_PRIVILEGED_2FA defaults to false, needs TOTP_ENC_KEY when true, and the key must be 32 bytes in base64", () => {
     const key = Buffer.alloc(32, 1).toString("base64");
-    expect(parseEnv(base).data?.REQUIRE_OWNER_2FA).toBe(false);
+    expect(parseEnv(base).data?.REQUIRE_PRIVILEGED_2FA).toBe(false);
     expect(parseEnv(base).data?.TOTP_ISSUER).toBe("OctavoLab");
-    const missing = parseEnv({ ...base, REQUIRE_OWNER_2FA: "true" });
-    expect(missing.error?.flatten().fieldErrors.TOTP_ENC_KEY?.[0]).toMatch(/REQUIRE_OWNER_2FA/);
-    expect(parseEnv({ ...base, REQUIRE_OWNER_2FA: "true", TOTP_ENC_KEY: key }).data?.REQUIRE_OWNER_2FA).toBe(true);
+    const missing = parseEnv({ ...base, REQUIRE_PRIVILEGED_2FA: "true" });
+    expect(missing.error?.flatten().fieldErrors.TOTP_ENC_KEY?.[0]).toMatch(/REQUIRE_PRIVILEGED_2FA/);
+    expect(parseEnv({ ...base, REQUIRE_PRIVILEGED_2FA: "true", TOTP_ENC_KEY: key }).data?.REQUIRE_PRIVILEGED_2FA).toBe(true);
     const short = parseEnv({ ...base, TOTP_ENC_KEY: Buffer.alloc(16, 1).toString("base64") });
     expect(short.error?.flatten().fieldErrors.TOTP_ENC_KEY?.[0]).toMatch(/32 random bytes/);
     expect(JSON.stringify(short.error?.flatten())).not.toContain(Buffer.alloc(16, 1).toString("base64"));
-    expect(parseEnv({ ...base, REQUIRE_OWNER_2FA: "yes" }).success).toBe(false);
+    expect(parseEnv({ ...base, REQUIRE_PRIVILEGED_2FA: "yes" }).success).toBe(false);
+    // Old name still works; the new name wins when both are set.
+    expect(parseEnv({ ...base, REQUIRE_OWNER_2FA: "true", TOTP_ENC_KEY: key }).data?.REQUIRE_PRIVILEGED_2FA).toBe(true);
+    expect(parseEnv({ ...base, REQUIRE_OWNER_2FA: "true", REQUIRE_PRIVILEGED_2FA: "false" }).data?.REQUIRE_PRIVILEGED_2FA).toBe(false);
     expect(parseEnv({ ...base, TOTP_ISSUER: "Bad:Issuer" }).success).toBe(false);
   });
 });

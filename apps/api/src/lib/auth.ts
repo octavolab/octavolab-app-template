@@ -36,7 +36,7 @@ export function emailFingerprint(email: string): string {
  * On every authenticated request the user is re-read by primary key: the token is rejected (401) if the user no longer
  * exists, its sessionVersion changed (logout, role change) or its role or tenant differ from the token. The cookie is
  * rotated after half its life, carrying the current sessionVersion.
- * With REQUIRE_OWNER_2FA=true an owner without 2FA gets 403 MFA_ENROLLMENT_REQUIRED on every route that does not pass
+ * With REQUIRE_PRIVILEGED_2FA=true an owner or admin without 2FA gets 403 MFA_ENROLLMENT_REQUIRED on every route that does not pass
  * `allowMfaEnrollment` (only /auth/me and the /auth/2fa enrollment routes do).
  */
 export function requireAuth(roles?: Session["role"][], opts: { allowMfaEnrollment?: boolean } = {}) {
