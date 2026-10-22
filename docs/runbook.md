@@ -54,8 +54,9 @@ With `REDIS_URL` set, a Redis outage keeps ordinary routes serving (rate limits 
 
 ## Secrets in AWS Secrets Manager (ASVS 6.4.1)
 - One secret per environment, named `<PROJECT_NAME>/<env>` (for example `octavolab/staging`), region of the service, type "Other", value a flat JSON object: `{"DATABASE_URL": "...", "SESSION_SECRET": "...", "TOTP_ENC_KEY": "..."}` plus provider keys when the mode is test or live. Jaime types the values in the console; they never go in chat, tickets or the repo.
-- The deploy role reads it (`ReadProjectSecrets` in `infra/iam-policy-project.json`, after the `${PROJECT_NAME}` substitution). `infra/deploy.sh` merges it into the `app` container (the worker inherits it) and logs only the key names it changes, never values.
-- It is optional and only read at deploy time with the deploy role's short-lived credentials; the containers hold no AWS keys. While the secret does not exist, the Lightsail environment is the source of truth (see `docs/secrets.md`).
+- Automatic first seed (staging only): when `<PROJECT_NAME>/<env>` does not exist and the deploy role has the `ProjectSecrets` statement, `infra/deploy.sh` creates it once from the active `app` environment (DATABASE_URL, SESSION_SECRET, TOTP_ENC_KEY, OPS_EMAIL), tagged project and env, without printing values. From then on the secret is the source of truth. Production never seeds: its secret must exist before the first deploy. Disable with `SEED_SECRET_FROM_ACTIVE=0`.
+- The deploy role reads it (`ProjectSecrets` in `infra/iam-policy-project.json`, after the `${PROJECT_NAME}` substitution). `infra/deploy.sh` merges it into the `app` container (the worker inherits it) and logs only the key names it changes, never values.
+- It is only read at deploy time with the deploy role's short-lived credentials; the containers hold no AWS keys. Production fails closed without it; staging falls back to the Lightsail environment with a CI warning while the secret is missing or unreadable (see `docs/secrets.md`).
 - Rotate: see "Rotate secrets" below.
 - Cost: AWS lists a per-secret monthly price; check it on the console before creating (N07).
 

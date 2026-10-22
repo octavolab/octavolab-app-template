@@ -15,8 +15,11 @@ Rotation procedures: `docs/runbook.md` → "Rotate secrets" (Spanish: `docs/runb
 Lightsail container services have **no IAM task role**: a container cannot fetch secrets from AWS at runtime without
 long-lived AWS keys in its own environment, which would be a worse secret than the ones it protects. So secrets are
 **plaintext Lightsail environment variables** of the `app` container (copied to `worker` by `infra/deploy.sh`).
-`infra/deploy.sh` can also merge a Secrets Manager secret at deploy time (the deploy role reads it with short-lived OIDC
-credentials); the values still end up as Lightsail environment variables. We do not add any runtime Secrets Manager client.
+The source of truth is the Secrets Manager secret `<PROJECT_NAME>/<env>`, which `infra/deploy.sh` merges at deploy time
+(the deploy role reads it with short-lived OIDC credentials); the values still end up as Lightsail environment variables.
+Production requires the secret and the deploy fails closed without it. On staging the first deploy seeds the secret once
+from the active environment; until it exists or is readable, staging keeps the Lightsail environment with a CI warning.
+We do not add any runtime Secrets Manager client.
 
 ## Threats and controls
 | Threat | Control |

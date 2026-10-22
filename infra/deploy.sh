@@ -53,20 +53,50 @@ check_lock
 BASE_VERSION="$(active_version)"
 echo "Active deployment: version $BASE_VERSION"
 
-docker build -f infra/Dockerfile --build-arg "GIT_SHA=$SHA" -t "$SERVICE:app" .
+# -q keeps the deploy log short enough for GitHub to show it whole (errors are still printed).
+docker build -q -f infra/Dockerfile --build-arg "GIT_SHA=$SHA" -t "$SERVICE:app" .
 "${LS[@]}" push-container-image --service-name "$SERVICE" --label app --image "$SERVICE:app"
 
 sed -e "s/:SERVICE_NAME.app.latest/:$SERVICE.app.latest/g" infra/lightsail.json > "$WORK/template.json"
 # Lightsail replaces the whole deployment: start from the environment of the ACTIVE deployment (secrets never live in this repo).
 "${LS[@]}" get-container-service-deployments --service-name "$SERVICE" --query "deployments[?state=='ACTIVE'] | [0].containers" --output json > "$WORK/active.json"
-# Optional deploy-time source for secrets (ASVS 6.4.1): Secrets Manager secret "<PROJECT_NAME>/<env>", a flat JSON object.
-# Read with the deploy role's short-lived credentials; the containers never hold AWS keys. Its values win for the app
-# container and are reported as such below. Missing secret = keep the active environment.
+# Source of truth for secrets (ASVS 6.4.1): Secrets Manager secret "<PROJECT_NAME>/<env>", a flat JSON object such as
+# {"DATABASE_URL": "...", "SESSION_SECRET": "...", "TOTP_ENC_KEY": "..."}. Read with the deploy role's short-lived
+# credentials; the containers never hold AWS keys. Its values win for the app container and are reported by key name below.
+# Production requires the secret and fails closed. Outside production, a missing secret is seeded once from the ACTIVE app
+# environment (values never printed), and a missing secret or missing permission falls back to the active environment
+# with a visible CI warning.
 SECRET_ID="${SECRET_ID:-${PROJECT_NAME:-$SERVICE}/$ENV}"
-if aws secretsmanager get-secret-value --region "$REGION" --secret-id "$SECRET_ID" --query SecretString --output text > "$WORK/secrets.json" 2>/dev/null; then
-  echo "Secrets: merging Secrets Manager $SECRET_ID"
+if aws secretsmanager get-secret-value --region "$REGION" --secret-id "$SECRET_ID" --query SecretString --output text > "$WORK/secrets.json" 2> "$WORK/secrets.err"; then
+  echo "Secrets: merged from Secrets Manager ($SECRET_ID)"; echo "::notice title=Secrets Manager in use::merged from $SECRET_ID"
+elif grep -q "ResourceNotFoundException" "$WORK/secrets.err" && [ "$ENV" != "prod" ] && [ "${SEED_SECRET_FROM_ACTIVE:-1}" = "1" ] \
+  && python3 - "$WORK" <<'PY'
+# One-time seed outside production: the secret does not exist yet, so create it from the ACTIVE app container's
+# environment (the values a human already typed in the Lightsail console). Values are never printed; the file is 0600.
+import json,sys
+work=sys.argv[1]; act=json.load(open(f'{work}/active.json')) or {}
+app=act.get('app',{}).get('environment',{})
+keys=[k for k in ("DATABASE_URL","SESSION_SECRET","TOTP_ENC_KEY","OPS_EMAIL") if app.get(k)]
+if "DATABASE_URL" not in keys or "SESSION_SECRET" not in keys: sys.exit(1)
+json.dump({k: app[k] for k in keys}, open(f'{work}/seed.json','w'))
+print("Secrets: seeding keys", ",".join(keys))
+PY
+then
+  if aws secretsmanager create-secret --region "$REGION" --name "$SECRET_ID" --secret-string "file://$WORK/seed.json" \
+       --tags "Key=project,Value=${PROJECT_NAME:-$SERVICE}" "Key=env,Value=$ENV" --query Name --output text 2> "$WORK/secrets.err"; then
+    mv "$WORK/seed.json" "$WORK/secrets.json"
+    echo "Secrets: created $SECRET_ID from the active environment and merged from Secrets Manager ($SECRET_ID)"
+    echo "::notice title=Secrets Manager in use::created $SECRET_ID from the active environment (one-time seed) and merged"
+  else
+    rm -f "$WORK/seed.json"; echo "{}" > "$WORK/secrets.json"
+    echo "::warning title=Secrets Manager not in use::could not create $SECRET_ID (the deploy role needs the ProjectSecrets statement); staging keeps the Lightsail environment (ASVS 6.4.1 Partial)"
+  fi
+elif grep -qE "ResourceNotFoundException|AccessDeniedException" "$WORK/secrets.err" && [ "$ENV" != "prod" ]; then
+  echo "{}" > "$WORK/secrets.json"
+  echo "::warning title=Secrets Manager not in use::$SECRET_ID missing or not readable by the deploy role; staging keeps the Lightsail environment (ASVS 6.4.1 Partial)"
 else
-  echo "{}" > "$WORK/secrets.json"; echo "Secrets: $SECRET_ID not found or not readable; keeping the active environment"
+  # Network errors, AccessDenied in prod or a missing secret in prod: fail closed, never deploy with unknown secrets.
+  echo "Secrets: cannot read $SECRET_ID; deploy stopped:" >&2; sed 's/arn:[^ ]*/<arn>/g' "$WORK/secrets.err" | head -3 >&2; exit 1
 fi
 python3 infra/deploy_env.py "$WORK/template.json" "$WORK/active.json" "$WORK/secrets.json" "$WORK/deployment.json"
 

@@ -64,12 +64,22 @@ Platform
 | 5.1.2 | Mass parameter assignment | strict zod schemas on `/me/orders` and 2FA bodies | Met (unit) |
 | 6.2.1, 6.2.2 | Fail securely; approved algorithms and modes | AES-256-GCM, HKDF-SHA256, HMAC-SHA256; decrypt fails closed | Met (unit) |
 | 6.3.1 | Random values from a CSPRNG | `crypto.randomBytes` for secrets, IVs, codes | Met (code review) |
-| 6.4.1 | Keys in a secrets management solution | AWS Secrets Manager secret `<PROJECT_NAME>/<env>` merged into the container at deploy (`infra/deploy.sh`), read by the deploy role only (`ReadProjectSecrets` in `infra/iam-policy-project.json`); Lightsail injects them as environment variables at runtime | Partial until the secret exists for an environment and a deploy log shows "Secrets: merged from Secrets Manager"; rotation in `docs/runbook.md` |
+| 6.4.1 | Keys in a secrets management solution | AWS Secrets Manager secret `<PROJECT_NAME>/<env>` merged into the container at deploy (`infra/deploy.sh`), read by the deploy role only (`ProjectSecrets` in `infra/iam-policy-project.json`); Lightsail injects them as environment variables at runtime | Partial until the secret exists for an environment and a deploy log shows "Secrets: merged from Secrets Manager"; rotation in `docs/runbook.md` |
 | 7.1.1 | No credentials or secrets in logs | Resend error mapping, MFA logs | Met (unit) |
 | 8.2.1 | Anti-caching headers for sensitive data | `Cache-Control: no-store` on enroll, activate, recovery codes | Met (unit) |
 
+## ASVS L2 checklist sign-off
+| Field | Value |
+|---|---|
+| Scope | Template `octavolab-app-template` v0.7.3, staging (`octavolab-staging`, eu-west-2) |
+| Reviewed | The ASVS 4.0.3 mapping above, with the evidence in `docs/LOGBOOK.md` (green CI with image boot, trivy, semgrep, gitleaks, osv-scanner; OIDC deploy and version-checked smoke on staging) |
+| Signed by | Jaime Blum, CTO (approval given in writing in the engineering session: "firmo ASVS"; confirmed by Jaime merging PR #18 from his own GitHub account, 2026-10-22 13:06 UTC, merge commit 4c27ce7) |
+| Date | 2026-10-22 |
+| Accepted open items (must close before production) | 6.4.1 Partial: the Secrets Manager secret for staging is not created yet (deploy falls back to the Lightsail environment); passkeys/WebAuthn; alerting on `mfa_failed` and `outbox_dead_letter`; restore test; IAM `env` tag per environment |
+| Next review | Before the first production deploy, or in 90 days, whichever comes first |
+
 ## Roadmap before any production deploy (Módulo C 6.2)
-WebAuthn or passkeys as a phishing-resistant factor (TOTP is not); alerting on `mfa_failed` bursts; ZAP baseline nightly against staging (job wired, needs `STAGING_URL`); restore test; OWASP ASVS L2 manual checklist signed; alerting on the `outbox_dead_letter` log line; Redis for rate limits before scaling the API beyond one instance.
+WebAuthn or passkeys as a phishing-resistant factor (TOTP is not); alerting on `mfa_failed` bursts; ZAP baseline nightly against staging (job wired, needs `STAGING_URL`); restore test; alerting on the `outbox_dead_letter` log line; Redis for rate limits before scaling the API beyond one instance.
 
 ## Verified only in a real CI run or Lightsail deploy
 The authoring environment cannot download the Prisma engines or reach GitHub Actions and AWS. Not executed there: the PostgreSQL and Redis integration tests (including `self-service-mfa.int.test.ts`: unique index, foreign keys, cursor pagination and the concurrent single-use updates for TOTP steps and recovery codes), a real Resend send, `prisma migrate diff --exit-code` drift check, typecheck of code that needs the generated Prisma client, Playwright e2e, the scanners, the Docker build, OIDC role assumption, the IAM tag conditions and the deploy and smoke scripts. Record the outcome of the first real run in `docs/learnings.md`.
