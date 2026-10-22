@@ -90,4 +90,11 @@ describe("operational alerts", () => {
     await alerts.checkAlerts(t.d);
     expect(t.outboxCount).toHaveBeenLastCalledWith({ where: { deadLetteredAt: { gt: NOW } } });
   });
+  it("the cooldown and the next dead-letter count start from the time taken BEFORE the counts", async () => {
+    const t = deps({ mfa: 0, dead: 1 }, { webhook: "https://hooks.example.test/x" });
+    // The database answers 30 s later than the evaluation started.
+    t.outboxCount.mockImplementationOnce(async () => { t.advance(30_000); return 1; });
+    await alerts.checkAlerts(t.d);
+    expect(t.d.lastFired.get("outbox_dead_letter")).toBe(NOW.getTime());
+  });
 });

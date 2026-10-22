@@ -1,6 +1,22 @@
 # Runbook
 ## Deploy
-First deploy of a new service: set DATABASE_URL, SESSION_SECRET, APP_URL, OPS_EMAIL, INTEGRATIONS_MODE (required in production, never defaulted), PAYMENTS_PROVIDER and provider keys (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET), TOTP_ENC_KEY (`openssl rand -base64 32`; required because infra/lightsail.json sets REQUIRE_PRIVILEGED_2FA=true), MESSAGING_PROVIDER with RESEND_API_KEY and MESSAGING_FROM when using Resend, and REDIS_URL if the API runs more than one instance, once with "aws lightsail create-container-service-deployment" from a local file outside the repo (deploy.sh only carries over the ACTIVE deployment's environment, and without these the API exits at boot). Then: staging: merge to main → CI deploys. prod: Jaime approves in chat → the user named in the repository variable `PROD_APPROVER` pushes the tag (`git tag vX.Y.Z && git push origin vX.Y.Z`) → `deploy.sh prod` requests a database snapshot `<project>-prod-db-pre-<version>-<UTC time>` and stops if it cannot. Only the approver gets production credentials once the AWS trust of infra/README.md "Production gate" is in place; until then the workflow `if` is the only check and can be bypassed by a writer. Migrations run when the new app container starts (ADR 0005); if one fails, the new container fails its health check and the previous deployment stays active. Production also needs `ALERT_WEBHOOK_URL` in its secret (runbook "Alerts").
+**First deploy of a new service** (once, from a local file outside the repo, with `aws lightsail create-container-service-deployment`; `deploy.sh` only carries over the ACTIVE deployment's environment, and without these the API exits at boot):
+- Always: `DATABASE_URL`, `SESSION_SECRET`, `APP_URL`, `OPS_EMAIL`, `INTEGRATIONS_MODE` (required in production, never defaulted), `TOTP_ENC_KEY` (`openssl rand -base64 32`; required because infra/lightsail.json sets `REQUIRE_PRIVILEGED_2FA=true`).
+- Payments: `PAYMENTS_PROVIDER` and its keys (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`).
+- Messaging: `MESSAGING_PROVIDER`, plus `RESEND_API_KEY` and `MESSAGING_FROM` when using Resend.
+- Production (live mode): `ALERT_WEBHOOK_URL` (runbook "Alerts").
+- More than one API instance: `REDIS_URL`.
+
+**Staging:** merge to `main`; CI deploys.
+
+**Production:**
+1. Jaime approves in chat (N07).
+2. The approver checks the workflow changes being released: `git diff <last tag>..HEAD -- .github/`.
+3. The user named in the repository variable `PROD_APPROVER` pushes the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+4. `deploy.sh prod` pushes the image, merges the secret, takes the snapshot `<project>-prod-db-pre-<version>-<UTC time>` and waits until it is `available`. No snapshot, no deploy.
+5. Migrations run when the new app container starts (ADR 0005). If one fails, the new container fails its health check and the previous deployment stays active.
+Credentials: only the approver gets production credentials once the AWS trust in infra/README.md "Production gate" is in place. Until then the workflow `if` is the only check, and a writer can bypass it.
+
 ## AWS credentials
 CI deploys with GitHub OIDC: the deploy jobs (only they have `id-token: write`) assume `AWS_ROLE_STAGING` or `AWS_ROLE_PROD` with `aws-actions/configure-aws-credentials`. Humans use a short-lived session for the same role (`aws sso login` or `aws sts assume-role` with MFA). No IAM user access keys exist for deploys. Policy and trust details: `infra/README.md`.
 ## Rollback
@@ -26,7 +42,8 @@ Two rules, counted from the database over the last 15 minutes: `mfa_failed_spike
 ## Incidents
 1. Declare in LOGBOOK with time. 2. Check /api/health, container logs (`aws lightsail get-container-log`). 3. Rollback if a deploy caused it. 4. Notify client with the template in docs/handover. 5. Postmortem within 48 h.
 ## Monthly
-Dependabot PRs, review the deploy roles' OIDC trust policies (repository and environment conditions) and who can assume them; there are no long-lived IAM keys to rotate, review costs, review docs/learnings.md.
+- Snapshots: every production deploy keeps one manual snapshot (`<project>-prod-db-pre-*`). Keep the last 5 and those of the last 90 days; Jaime deletes older ones in the console (the deploy role cannot delete).
+- Dependabot PRs, review the deploy roles' OIDC trust policies (repository and environment conditions) and who can assume them; there are no long-lived IAM keys to rotate, review costs, review docs/learnings.md.
 
 ## Worker environment
 The `worker` container validates the same environment as the API (`DATABASE_URL`, `SESSION_SECRET`, `APP_URL`, `OPS_EMAIL`, `INTEGRATIONS_MODE`). `infra/deploy.sh` copies the `app` container's variables into `worker` on every deployment; if you set variables by hand in the Lightsail console, set them on BOTH containers.

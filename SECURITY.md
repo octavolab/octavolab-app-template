@@ -91,7 +91,7 @@ The signed table above stays as signed. Changes since, for the next review:
 | Re-signed by | pending | |
 
 ## Roadmap before any production deploy (Módulo C 6.2)
-WebAuthn or passkeys as a phishing-resistant factor (TOTP is not); a real delivery test of the alert webhook (code in 0.7.5); ZAP baseline nightly against staging (job wired, needs `STAGING_URL`); restore test (procedure in the runbook); applying the 0.7.4 IAM policy and the production gate in AWS and GitHub; Redis for rate limits before scaling the API beyond one instance.
+WebAuthn or passkeys as a phishing-resistant factor (TOTP is not); a real delivery test of the alert webhook (code in 0.7.5); ZAP baseline nightly against staging (job wired, needs `STAGING_URL`); restore test (procedure in the runbook); applying the 0.7.5 IAM policy (env tag and per-environment secrets) and the production gate in AWS and GitHub; Redis for rate limits before scaling the API beyond one instance.
 
 ## Verified only in a real CI run or Lightsail deploy
 The authoring environment cannot download the Prisma engines or reach GitHub Actions and AWS. Not executed there: the PostgreSQL and Redis integration tests (including `self-service-mfa.int.test.ts`: unique index, foreign keys, cursor pagination and the concurrent single-use updates for TOTP steps and recovery codes), a real Resend send, `prisma migrate diff --exit-code` drift check, typecheck of code that needs the generated Prisma client, Playwright e2e, the scanners, the Docker build, OIDC role assumption, the IAM tag conditions and the deploy and smoke scripts. Record the outcome of the first real run in `docs/learnings.md`.
