@@ -4,6 +4,10 @@
 # GitHub OIDC (aws-actions/configure-aws-credentials with role-to-assume); locally from `aws sso login` or
 # `aws sts assume-role` with MFA for the same role. No IAM user access keys. Production only with Jaime's approval (N07).
 set -euo pipefail
+# Every temp file below may hold secrets: owner-only from the first one written (/tmp/active.* holds the live environment).
+umask 077
+# Files with merged secrets never outlive the script, whatever path it exits by (a failed snapshot included).
+trap 'rm -f "/tmp/secrets.$ENV.json" "/tmp/secrets.$ENV.err" "/tmp/lightsail.$ENV.json" "/tmp/active.$ENV.json" "/tmp/seed.$ENV.json"' EXIT
 ENV="${1:?staging|prod}"
 SERVICE="${LIGHTSAIL_SERVICE:-${PROJECT_NAME:?set PROJECT_NAME}-$ENV}"
 REGION="${AWS_REGION:-eu-west-2}"
@@ -20,9 +24,6 @@ aws lightsail get-container-service-deployments --region "$REGION" --service-nam
 # Its values win over the carried-over environment. If the secret does not exist yet, the deploy keeps the active
 # environment and says so (never fails open: the API refuses to start without its required variables).
 SECRET_ID="${SECRET_ID:-${PROJECT_NAME:-$SERVICE}/$ENV}"
-umask 077
-# Files with merged secrets never outlive the script, whatever path it exits by (a failed snapshot included).
-trap 'rm -f "/tmp/secrets.$ENV.json" "/tmp/secrets.$ENV.err" "/tmp/lightsail.$ENV.json" "/tmp/active.$ENV.json" "/tmp/seed.$ENV.json"' EXIT
 if aws secretsmanager get-secret-value --region "$REGION" --secret-id "$SECRET_ID" --query SecretString --output text > "/tmp/secrets.$ENV.json" 2> "/tmp/secrets.$ENV.err"; then
   echo "Secrets: merged from Secrets Manager ($SECRET_ID)"; echo "::notice title=Secrets Manager in use::merged from $SECRET_ID"
 elif grep -q "ResourceNotFoundException" "/tmp/secrets.$ENV.err" && [ "$ENV" != "prod" ] && [ "${SEED_SECRET_FROM_ACTIVE:-1}" = "1" ] \
