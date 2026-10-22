@@ -98,8 +98,8 @@ export function CatalogView({ lines, setLines, flow, onPaymentReady, onAuthError
                           <p className="tabular text-2xl font-bold tracking-tight text-ink-950 dark:text-white">{formatMoney(p.unitAmount, p.currency, locale)}</p>
                           <div className="mt-auto">
                             {q === 0 ? (
-                              <Button className="w-full" onClick={() => setLines((l) => addOne(l, p.sku))} aria-label={t("addToCartNamed", { name: p.name })}>
-                                <Icon name="plus" className="size-4" />{t("addToCart")}
+                              <Button className="w-full" onClick={() => setLines((l) => addOne(l, p.sku))}>
+                                <Icon name="plus" className="size-4" />{t("addToCart")}<span className="sr-only">: {p.name}</span>
                               </Button>
                             ) : (
                               <QtyStepper name={p.name} qty={q} onChange={(n) => setLines((l) => setQty(l, p.sku, n))} />

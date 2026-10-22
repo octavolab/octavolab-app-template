@@ -57,7 +57,7 @@ export function ProductsAdminView({ role, onAuthError }: { role: Role; onAuthErr
                     </td>
                     {canEdit && (
                       <td className="text-right md:px-5 md:py-3">
-                        <Button size="sm" variant="secondary" onClick={() => { setSaved(null); setEditing(p); }} aria-label={t("editProduct", { sku: p.sku })}>{t("edit")}</Button>
+                        <Button size="sm" variant="secondary" onClick={() => { setSaved(null); setEditing(p); }} >{t("edit")}<span className="sr-only"> {p.sku}</span></Button>
                       </td>
                     )}
                   </tr>

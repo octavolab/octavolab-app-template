@@ -57,7 +57,7 @@ test("customer: login, catalog, cart, checkout (demo payment), order in My order
 
   // Catalog from GET /api/v1/products with prices formatted from minor units.
   await expect(page.getByRole("heading", { level: 1, name: "Catalog" })).toBeVisible();
-  const addButtons = page.getByRole("button", { name: /^Add .+ to cart$/ });
+  const addButtons = page.getByRole("button", { name: /^Add to cart: / });
   await expect(addButtons.first()).toBeVisible();
   await expectAccessible(page, "catalog");
 

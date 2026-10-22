@@ -76,7 +76,6 @@
   "catalogEmpty": "Todavía no hay productos disponibles.",
   "catalogError": "No pudimos cargar el catálogo.",
   "addToCart": "Agregar al carrito",
-  "addToCartNamed": "Agregar {name} al carrito",
   "inCart": "{qty} en el carrito",
   "cartTitle": "Tu carrito",
   "cartEmpty": "Tu carrito está vacío. Agrega productos del catálogo.",

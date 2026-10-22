@@ -212,9 +212,9 @@ function LangSwitch() {
   return (
     <div role="group" aria-label={t("language")} className="flex rounded-xl bg-ink-100 p-1 dark:bg-ink-800">
       {opts.map((o) => (
-        <button key={o.l} type="button" lang={o.l} aria-pressed={lang === o.l} aria-label={o.label} onClick={() => setLang(o.l)}
+        <button key={o.l} type="button" lang={o.l} aria-pressed={lang === o.l} title={o.label} onClick={() => setLang(o.l)}
           className={cx("h-8 rounded-lg px-2.5 text-xs font-bold", lang === o.l ? "bg-white text-ink-950 shadow-sm dark:bg-ink-950 dark:text-white" : "text-ink-700 hover:text-ink-950 dark:text-ink-200 dark:hover:text-white")}>
-          {o.short}
+          {o.short}<span className="sr-only"> ({o.label})</span>
         </button>
       ))}
     </div>

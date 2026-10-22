@@ -76,7 +76,6 @@
   "catalogEmpty": "There are no products available yet.",
   "catalogError": "We could not load the catalog.",
   "addToCart": "Add to cart",
-  "addToCartNamed": "Add {name} to cart",
   "inCart": "{qty} in cart",
   "cartTitle": "Your cart",
   "cartEmpty": "Your cart is empty. Add products from the catalog.",
