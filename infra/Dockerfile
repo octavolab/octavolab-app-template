@@ -14,7 +14,11 @@ RUN pnpm db:generate && pnpm build
 
 FROM node:22-alpine AS runtime
 # No corepack and no pnpm at runtime: nothing is downloaded when the container starts.
-RUN apk add --no-cache openssl && addgroup -S app && adduser -S app -G app
+# The base image bundles npm, npx and corepack; the app never uses them at runtime and npm's own
+# dependencies carry HIGH advisories (trivy, first real run), so they are removed from the runtime image.
+RUN apk add --no-cache openssl && addgroup -S app && adduser -S app -G app \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 WORKDIR /app
 COPY --from=base /app ./
 ENV NODE_ENV=production PORT=3000
