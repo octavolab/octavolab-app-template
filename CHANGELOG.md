@@ -11,6 +11,9 @@ All notable changes to this project are documented here (Keep a Changelog, semve
 - `schema.prisma` used one-line blocks that Prisma rejects (`prisma generate` failed on the first real run; local tests used the in-memory stand-in, so this was only visible in CI). Blocks rewritten one field per line; `prisma validate` passes.
 - A test called `$transaction` with a `never`-typed callback that only compiled without a generated client; fixed.
 - Dependabot waits 7 days before proposing a new release (`cooldown`), matching `minimumReleaseAge`.
+- Dependencies with advisories (osv-scanner, `pnpm audit`): `@fastify/static` 8.3 to 10.1.6 (runtime), vite 5.4 to 6.4.4, vitest 2.1 to 4.1.12, `@vitejs/plugin-react` 4 to 5.2. `pnpm audit`: no known vulnerabilities. rollup is pinned by override to a release older than 7 days; vitest is a dated, dev-only exception to `minimumReleaseAge` (remove after 2026-10-23); `semver@6.3.1` is excluded from `trustPolicy` (old release published before provenance).
+- vitest 4 no longer excludes `dist/` by default: compiled tests ran twice. `dist/**` is excluded explicitly.
+- vitest 4 measures branches more strictly (82.4 % against the 85 % ratchet). The threshold was NOT lowered: new tests cover the Redis store of the login and 2FA limiters (shared counters, aborted transaction, expiry, the 50,000-key fail-closed bound) and the health probe (Redis ok, odd reply, error; database down). Branches now 85.8 %, lines 97.9 %.
 - `.gitleaksignore` lists two reviewed false positives by fingerprint: the RFC 6238 test seed and a fake Resend key in tests.
 
 ## [0.7.0] - 2026-10-22

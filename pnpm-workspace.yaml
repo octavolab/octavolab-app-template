@@ -17,3 +17,15 @@ onlyBuiltDependencies:
   - argon2
   - esbuild
   - msgpackr-extract
+# rollup publishes often; its platform binaries are exact optional deps, so pnpm cannot fall back
+# to an older mature version by itself. Pin to a release older than minimumReleaseAge; Dependabot bumps it.
+overrides:
+  rollup: 4.64.7
+# Security-fix exception (2026-10-22): vitest 4.1.12 fixes GHSA advisories in @vitest/mocker and is
+# 6 days old. Dev-only (tests never ship in the image). Remove this exclusion after 2026-10-23.
+minimumReleaseAgeExclude:
+  - vitest
+  - "@vitest/*"
+# Old releases published before the maintainer enabled provenance; pinned exact versions, reviewed 2026-10-22.
+trustPolicyExclude:
+  - "semver@6.3.1"
