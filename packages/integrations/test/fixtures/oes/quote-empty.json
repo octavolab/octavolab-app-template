@@ -1,0 +1,6 @@
+{
+  "request": { "from": "GB", "to": "AQ", "weightKg": 1, "volumetricKg": 0 },
+  "status": 200,
+  "response": { "rates": [] },
+  "expected": []
+}

@@ -45,6 +45,19 @@ describe("ResendMessaging", () => {
     expect(f.calls.map((c) => JSON.parse(String(c.init.body)).to)).toEqual([[RESEND_SANDBOX_RECIPIENT], ["bounced@resend.dev"]]);
   });
 
+  it("sandbox delivers to MESSAGING_ALLOW_LIST addresses as is (exact, case-insensitive); everyone else gets the test inbox", async () => {
+    const f = fakeFetch({ status: 200, body: { id: "id-1" } });
+    const a = adapter(f, true, { allowList: [" Jaime@Example.com ", ""] });
+    await a.send({ ...input, to: "jaime@example.com" });
+    await a.send({ ...input, to: "JAIME@example.com" });
+    await a.send({ ...input, to: "jaime@example.com.evil.co" });
+    await a.send({ ...input, to: "other@example.com" });
+    expect(f.calls.map((c) => JSON.parse(String(c.init.body)).to[0])).toEqual(["jaime@example.com", "JAIME@example.com", RESEND_SANDBOX_RECIPIENT, RESEND_SANDBOX_RECIPIENT]);
+    const live = fakeFetch({ status: 200, body: { id: "id-2" } });
+    await adapter(live, false, { allowList: [] }).send(input);
+    expect(JSON.parse(String(live.calls[0]!.init.body)).to).toEqual(["ops@client.example"]);
+  });
+
   it("maps provider errors: 4xx request errors are permanent, 401/403/409-concurrent/429/5xx are retryable", async () => {
     const cases: [number, string, string, boolean][] = [
       [422, "validation_error", "rejected", false], [400, "invalid_idempotency_key", "rejected", false], [404, "not_found", "rejected", false],

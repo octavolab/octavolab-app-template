@@ -1,0 +1,6 @@
+{
+  "request": { "from": "GB", "to": "CO", "weightKg": 1, "volumetricKg": 1 },
+  "status": 503,
+  "response": { "error": "service_unavailable" },
+  "expectedError": { "code": "provider_unavailable", "retryable": true, "message": "oes 503 service_unavailable" }
+}

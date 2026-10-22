@@ -7,14 +7,16 @@ import { renderTemplate } from "./templates.js";
  * Read the API reference on the day of integration (N02) and record it in docs/integrations/resend.md.
  *
  * - Requires RESEND_API_KEY and MESSAGING_FROM (the API env schema enforces both when MESSAGING_PROVIDER=resend and
- *   INTEGRATIONS_MODE is sandbox or live). The key is only ever placed in the Authorization header.
+ *   MESSAGING_MODE is sandbox or live; on APP_ENV=staging MESSAGING_FROM defaults to STAGING_MESSAGING_FROM). The key is
+ *   only ever placed in the Authorization header.
  * - One attempt per call with a timeout (default 10 s). Retries belong to the outbox worker (backoff, dead letter), so a
  *   slow provider never multiplies inside one claim lease. The outbox passes `outbox:<eventId>` as Idempotency-Key, so a
  *   retry after a timeout that actually succeeded is not delivered twice (Resend keeps keys for 24 hours).
  * - Errors become MessagingError with a sanitized message (`resend <status> <error name>`): never the key, the recipient
  *   or the provider's free text. `retryable=false` for requests that cannot succeed on retry.
- * - Sandbox mode never emails real people: every recipient is replaced by Resend's test inbox
- *   (delivered@resend.dev) unless it is already an @resend.dev address. Real recipients only in live mode (CLAUDE.md).
+ * - Sandbox mode never emails arbitrary people: every recipient is replaced by Resend's test inbox
+ *   (delivered@resend.dev) unless it is already an @resend.dev address or is listed, exactly, in MESSAGING_ALLOW_LIST
+ *   (team addresses that may receive real test emails from staging). Any other real recipient only in live mode.
  */
 export const RESEND_SANDBOX_RECIPIENT = "delivered@resend.dev";
 const ENDPOINT = "https://api.resend.com/emails";
@@ -24,6 +26,8 @@ export type ResendOptions = {
   apiKey?: string | undefined;
   from?: string | undefined;
   sandbox: boolean;
+  /** Sandbox only: exact addresses (case-insensitive) that are delivered as is instead of to the test inbox. */
+  allowList?: readonly string[] | undefined;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 };
@@ -33,6 +37,7 @@ export class ResendMessaging implements MessagingProvider {
   private readonly apiKey: string;
   private readonly from: string;
   private readonly sandbox: boolean;
+  private readonly allowList: ReadonlySet<string>;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
 
@@ -45,6 +50,7 @@ export class ResendMessaging implements MessagingProvider {
     this.apiKey = apiKey;
     this.from = from;
     this.sandbox = opts.sandbox;
+    this.allowList = new Set((opts.allowList ?? []).map((a) => a.trim().toLowerCase()).filter(Boolean));
     this.timeoutMs = opts.timeoutMs ?? 10_000;
     // Resolved at call time by default so tests (and runtime instrumentation) can replace globalThis.fetch.
     this.fetchImpl = opts.fetchImpl ?? ((...a: Parameters<typeof fetch>) => globalThis.fetch(...a));
@@ -53,7 +59,7 @@ export class ResendMessaging implements MessagingProvider {
   async send(input: MessageInput): Promise<{ providerRef: string }> {
     if (!EMAIL.test(input.to) || input.to.length > 254) throw new MessagingError("resend invalid recipient", "invalid_recipient", false);
     const rendered = renderTemplate(input.template, input.data);
-    const to = this.sandbox && !input.to.toLowerCase().endsWith("@resend.dev") ? RESEND_SANDBOX_RECIPIENT : input.to;
+    const to = this.sandboxRecipient(input.to);
     const headers: Record<string, string> = { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json", "User-Agent": "octavolab-app-template" };
     if (input.idempotencyKey) headers["Idempotency-Key"] = input.idempotencyKey.slice(0, 256);
     const body = JSON.stringify({
@@ -75,6 +81,12 @@ export class ResendMessaging implements MessagingProvider {
       return { providerRef: payload.id };
     }
     throw mapError(res.status, typeof payload.name === "string" ? payload.name : "");
+  }
+
+  private sandboxRecipient(to: string): string {
+    if (!this.sandbox) return to;
+    const lower = to.toLowerCase();
+    return lower.endsWith("@resend.dev") || this.allowList.has(lower) ? to : RESEND_SANDBOX_RECIPIENT;
   }
 }
 

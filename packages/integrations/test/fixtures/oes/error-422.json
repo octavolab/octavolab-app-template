@@ -1,0 +1,6 @@
+{
+  "request": { "from": "GB", "to": "XX", "weightKg": 1, "volumetricKg": 1 },
+  "status": 422,
+  "response": { "code": "invalid_destination", "message": "Destination XX is not served for account 12345" },
+  "expectedError": { "code": "rejected", "retryable": false, "message": "oes 422 invalid_destination" }
+}
