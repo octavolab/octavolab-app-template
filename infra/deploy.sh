@@ -9,17 +9,24 @@ SERVICE="${LIGHTSAIL_SERVICE:-${PROJECT_NAME:?set PROJECT_NAME}-$ENV}"
 REGION="${AWS_REGION:-eu-west-2}"
 VERSION="$(git describe --tags --always)"
 echo "Deploying $VERSION to $SERVICE ($REGION)"
-# Production: manual snapshot of the database before anything changes (migrations run at container start, ADR 0005).
-# Fails closed: no snapshot, no deploy. The deploy role may snapshot only databases tagged project and env.
+# -q keeps the deploy log short enough for GitHub to show it whole (errors are still printed).
+docker build -q -f infra/Dockerfile -t "$SERVICE:app" .
+aws lightsail push-container-image --region "$REGION" --service-name "$SERVICE" --label app --image "$SERVICE:app"
+# Production: snapshot of the database before the new version starts (its migrations run at container start, ADR 0005).
+# Taken after the image is pushed, so a failed build leaves no snapshot behind, and confirmed "available" before the
+# deployment is created. Fails closed: no confirmed snapshot, no deploy. The deploy role may snapshot only databases
+# tagged project and env.
 if [ "$ENV" = "prod" ]; then
   DB="${LIGHTSAIL_DB:-$SERVICE-db}"
   SNAP="$DB-pre-$(echo "$VERSION" | tr -c 'A-Za-z0-9\n' '-')-$(date -u +%Y%m%d%H%M)"
   aws lightsail create-relational-database-snapshot --region "$REGION" --relational-database-name "$DB" --relational-database-snapshot-name "$SNAP" > /dev/null
-  echo "Snapshot requested: $SNAP"
+  for i in $(seq 1 90); do
+    SNAP_STATE="$(aws lightsail get-relational-database-snapshot --region "$REGION" --relational-database-snapshot-name "$SNAP" --query relationalDatabaseSnapshot.state --output text)"
+    [ "$SNAP_STATE" = "available" ] && break; echo "Snapshot $SNAP is $SNAP_STATE; waiting ($i/90)"; sleep 10
+  done
+  [ "$SNAP_STATE" = "available" ] || { echo "Snapshot $SNAP not available in time (state: $SNAP_STATE); deploy stopped"; exit 1; }
+  echo "Snapshot available: $SNAP"
 fi
-# -q keeps the deploy log short enough for GitHub to show it whole (errors are still printed).
-docker build -q -f infra/Dockerfile -t "$SERVICE:app" .
-aws lightsail push-container-image --region "$REGION" --service-name "$SERVICE" --label app --image "$SERVICE:app"
 sed -e "s/:SERVICE_NAME.app.latest/:$SERVICE.app.latest/g" -e "s/\${APP_VERSION}/$VERSION/g" infra/lightsail.json > /tmp/lightsail.$ENV.json
 # Lightsail replaces the whole deployment: carry over the environment of the ACTIVE deployment (secrets never live in this repo).
 aws lightsail get-container-service-deployments --region "$REGION" --service-name "$SERVICE" --query "deployments[?state=='ACTIVE'] | [0].containers" --output json > "/tmp/active.$ENV.json"

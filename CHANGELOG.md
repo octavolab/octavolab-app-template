@@ -10,9 +10,13 @@ Production readiness (SECURITY.md accepted items).
 - Runbook: step-by-step restore test with measured recovery time; snapshot before every production deploy; "Alerts" section.
 ### Changed
 - `REQUIRE_PRIVILEGED_2FA=true` now also forces the `operations` role to enroll and keep 2FA (it reads every order of the tenant) (unit).
-### Fixed after the independent review (same release)
-- Production gate moved to AWS: the prod role trusts only an OIDC subject customized to carry the approver; the workflow `if` (now also `github.triggering_actor`) is defense in depth (infra/README "Production gate"). `deploy-prod` gets `timeout-minutes: 45` and a concurrency group; `deploy.sh prod` snapshots the database first and fails closed.
-- Alerts: the cooldown starts only after a successful delivery; dead letters are counted since the last delivered alert.
+### Moved here from the 0.7.4 notes
+- `WriteOnlyProjectTaggedResources` also requires `aws:ResourceTag/env = ${ENV_NAME}`: the staging role can no longer deploy to production resources (tag existing staging resources `env=staging` before applying).
+- `quality` job `timeout-minutes: 30` (the E2E step hung once on 22 Oct 2026).
+### Fixed after the independent reviews (same release)
+- Production gate in AWS: the prod role trusts only an OIDC subject customized with `repo`, `context`, `ref` and `actor_id` (environment `production`, a `v*` tag and the approver's numeric id); residual risk documented; the workflow `if` (now also `github.triggering_actor`) is defense in depth (infra/README "Production gate"). `deploy-prod` gets `timeout-minutes: 45` and a concurrency group; `deploy.sh prod` snapshots the database after the image push and waits until the snapshot is `available` before deploying (fails closed); the deploy policy gains `GetRelationalDatabaseSnapshot`.
+- Alerts: the cooldown starts only after a successful delivery; dead letters are counted since the evaluation time of the last delivered alert.
+- Runbook: 0.7.5 rollout note for operations users; restore test re-runs the deploy job instead of pushing to `main`.
 - SECURITY.md: the signed sign-off table is restored as signed; changes go to "Amendment 1", pending Jaime's re-sign.
 - Docs: `env=prod` tag for production resources; negative IAM test; ADR 0005 lock note; restore test with `INTEGRATIONS_MODE=fake`; Slack is the webhook format known to work.
 ### Not done (stays open)
@@ -28,11 +32,6 @@ Production readiness (SECURITY.md accepted items).
 ### Docs
 - `CLAUDE.md` points to kit `octavolab-core@7.4.0`.
 - LOGBOOK: smoke failure of run 39784069128 recorded (fixed by 573d10c) and the independent audit result.
-
-### Production readiness (added 22 Oct 2026, same PR)
-- `WriteOnlyProjectTaggedResources` also requires `aws:ResourceTag/env = ${ENV_NAME}`: the staging role can no longer deploy to production resources. Tag existing staging resources `env=staging` before applying.
-- `deploy-prod` gated by `vars.PROD_APPROVER` (tag pusher must match), because required reviewers on private repositories need GitHub Enterprise.
-- `quality` job `timeout-minutes: 30` (the E2E step hung once on run of 22 Oct 2026).
 
 ## [0.7.3] - 2026-10-22
 

@@ -47,14 +47,16 @@ export async function evaluate(deps: Pick<AlertDeps, "db" | "now" | "mfaThreshol
 
 /** Evaluates, applies the cooldown and delivers. Returns the alerts delivered (or logged when no webhook is set). Never throws. */
 export async function checkAlerts(deps: AlertDeps): Promise<Alert[]> {
+  // Evaluation time taken BEFORE the counts: the cooldown and the next dead-letter count start from it, so a dead letter
+  // written while this check runs is counted next time, never lost.
+  const nowMs = deps.now().getTime();
   let alerts: Alert[];
   try {
-    alerts = await evaluate(deps);
+    alerts = await evaluate({ ...deps, now: () => new Date(nowMs) });
   } catch (e) {
     deps.log.error({ event: "alert_check_error", error: String(e) }, "alert evaluation failed");
     return [];
   }
-  const nowMs = deps.now().getTime();
   const fired: Alert[] = [];
   for (const a of alerts) {
     const last = deps.lastFired.get(a.alert);
