@@ -3,9 +3,12 @@ updates:
   - package-ecosystem: npm
     directory: "/"
     schedule: { interval: monthly }
+    cooldown: { default-days: 7 } # same 7-day release age as pnpm minimumReleaseAge
   - package-ecosystem: github-actions
     directory: "/"
     schedule: { interval: monthly }
+    cooldown: { default-days: 7 } # same 7-day release age as pnpm minimumReleaseAge
   - package-ecosystem: docker
     directory: "/infra"
     schedule: { interval: monthly }
+    cooldown: { default-days: 7 } # same 7-day release age as pnpm minimumReleaseAge

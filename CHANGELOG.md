@@ -8,6 +8,10 @@ All notable changes to this project are documented here (Keep a Changelog, semve
 - pnpm 10.34.7 (`packageManager`); `pnpm/action-setup` reads it, so the conflicting `version: 9` input is gone.
 - Supply-chain settings in `pnpm-workspace.yaml`: `minimumReleaseAge: 10080`, `trustPolicy: no-downgrade`, `blockExoticSubdeps: true`, and `onlyBuiltDependencies` for the reviewed packages with install scripts (Prisma, argon2, esbuild, msgpackr-extract).
 - AES-256-GCM: the authentication tag length is fixed at 16 bytes on both sides and a truncated tag is rejected before decryption (semgrep `gcm-no-tag-length`; unit).
+- `schema.prisma` used one-line blocks that Prisma rejects (`prisma generate` failed on the first real run; local tests used the in-memory stand-in, so this was only visible in CI). Blocks rewritten one field per line; `prisma validate` passes.
+- A test called `$transaction` with a `never`-typed callback that only compiled without a generated client; fixed.
+- Dependabot waits 7 days before proposing a new release (`cooldown`), matching `minimumReleaseAge`.
+- `.gitleaksignore` lists two reviewed false positives by fingerprint: the RFC 6238 test seed and a fake Resend key in tests.
 
 ## [0.7.0] - 2026-10-22
 

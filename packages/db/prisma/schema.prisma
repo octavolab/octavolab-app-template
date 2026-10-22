@@ -1,8 +1,30 @@
-generator client { provider = "prisma-client-js" }
-datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
+generator client {
+  provider = "prisma-client-js"
+}
 
-enum Role { owner admin operations customer }
-enum OrderStatus { draft confirmed pending_payment paid shipped delivered closed cancelled refunded }
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  owner
+  admin
+  operations
+  customer
+}
+
+enum OrderStatus {
+  draft
+  confirmed
+  pending_payment
+  paid
+  shipped
+  delivered
+  closed
+  cancelled
+  refunded
+}
 
 model Tenant {
   id        String   @id @default(cuid())

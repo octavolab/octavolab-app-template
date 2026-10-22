@@ -270,7 +270,7 @@ describe("REQUIRE_OWNER_2FA", () => {
     ops.totpSecret = "enc"; ops.totpEnabledAt = new Date();
     db.recoveryCodes = [...(db.recoveryCodes ?? []), { userId: "m-ops", codeHash: "h" }];
     const { prisma } = await import("@octavolab/db");
-    await prisma.$transaction((tx: never) => usersRepo.changeRole(tx, "m-ops", "tM", "customer"));
+    await prisma.$transaction((tx) => usersRepo.changeRole(tx as never, "m-ops", "tM", "customer"));
     expect([ops.role, ops.totpSecret, ops.totpEnabledAt]).toEqual(["customer", null, null]);
   });
 });
