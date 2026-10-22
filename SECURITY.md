@@ -73,7 +73,7 @@ Platform
 |---|---|
 | Scope | Template `octavolab-app-template` v0.7.3, staging (`octavolab-staging`, eu-west-2) |
 | Reviewed | The ASVS 4.0.3 mapping above, with the evidence in `docs/LOGBOOK.md` (green CI with image boot, trivy, semgrep, gitleaks, osv-scanner; OIDC deploy and version-checked smoke on staging) |
-| Signed by | Jaime Blum, CTO (approval given in writing in the engineering session: "firmo ASVS") |
+| Signed by | Jaime Blum, CTO (approval given in writing in the engineering session: "firmo ASVS"; confirmed by Jaime's own approval of the pull request that adds this line) |
 | Date | 2026-10-22 |
 | Accepted open items (must close before production) | 6.4.1 Partial: the Secrets Manager secret for staging is not created yet (deploy falls back to the Lightsail environment); passkeys/WebAuthn; alerting on `mfa_failed` and `outbox_dead_letter`; restore test; IAM `env` tag per environment |
 | Next review | Before the first production deploy, or in 90 days, whichever comes first |
