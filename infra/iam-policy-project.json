@@ -35,7 +35,8 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:ResourceTag/project": "${PROJECT_NAME}"
+          "aws:ResourceTag/project": "${PROJECT_NAME}",
+          "aws:ResourceTag/env": "${ENV_NAME}"
         }
       }
     },

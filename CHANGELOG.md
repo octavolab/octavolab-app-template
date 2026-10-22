@@ -10,6 +10,11 @@ All notable changes to this project are documented here (Keep a Changelog, semve
 - `CLAUDE.md` points to kit `octavolab-core@7.4.0`.
 - LOGBOOK: smoke failure of run 39784069128 recorded (fixed by 573d10c) and the independent audit result.
 
+### Production readiness (added 22 Oct 2026, same PR)
+- `WriteOnlyProjectTaggedResources` also requires `aws:ResourceTag/env = ${ENV_NAME}`: the staging role can no longer deploy to production resources. Tag existing staging resources `env=staging` before applying.
+- `deploy-prod` gated by `vars.PROD_APPROVER` (tag pusher must match), because required reviewers on private repositories need GitHub Enterprise.
+- `quality` job `timeout-minutes: 30` (the E2E step hung once on run of 22 Oct 2026).
+
 ## [0.7.3] - 2026-10-22
 
 ### Final audit follow-ups (48/50 with Cumplimiento at 4)

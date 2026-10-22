@@ -30,7 +30,10 @@ aws iam create-policy --policy-name "acme-deploy-staging" --policy-document file
 
 - Read and list actions (`Get*`) are on `*` because Lightsail does not support resource-level permissions for them; the list is the minimum `deploy.sh`, `rollback.sh` and the runbook use.
 - `CreateContainerServiceRegistryLogin` (used by `lightsailctl` during `aws lightsail push-container-image`) has no resource type, so it cannot be scoped.
-- Write actions (`RegisterContainerImage`, `CreateContainerServiceDeployment`, `CreateRelationalDatabaseSnapshot`) are allowed only on resources tagged `project=<PROJECT_NAME>`. Tag the container services and the database when you create them.
+- Write actions (`RegisterContainerImage`, `CreateContainerServiceDeployment`, `CreateRelationalDatabaseSnapshot`) are allowed only on resources tagged `project=<PROJECT_NAME>` AND `env=<ENV_NAME>` (since 0.7.4), so the staging role cannot deploy to production. Tag the container services and the database with both tags when you create them. **Existing resources created before 0.7.4 carry only `project`: add `env=staging` to the staging service and database BEFORE applying the new policy, or the next staging deploy fails with AccessDenied.**
+
+## Production gate (any GitHub plan)
+Required reviewers on environments of private repositories need GitHub Enterprise (docs.github.com, "Managing environments for deployment", read 22 Oct 2026). `deploy-prod` therefore runs only when the `v*` tag was pushed by the GitHub user named in the repository variable `PROD_APPROVER`; with the variable empty or unset, production never deploys. Only repository admins can change variables. The chat approval (N07) still applies before the tag is pushed.
 - Destructive actions are denied explicitly.
 
 ## Verified locally vs only in a real run
