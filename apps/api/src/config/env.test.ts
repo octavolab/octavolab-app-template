@@ -30,18 +30,18 @@ describe("environment schema", () => {
   });
 
   it("requires RESEND_API_KEY and MESSAGING_FROM only when MESSAGING_PROVIDER=resend in sandbox or live mode", () => {
-    const resend = { ...base, MESSAGING_PROVIDER: "resend" };
+    const resend = { ...base, MESSAGING_PROVIDER: "resend", ALERT_WEBHOOK_URL: "https://hooks.example.com/x" };
     expect(parseEnv({ ...resend }).success).toBe(true); // fake mode: the fake adapter is used, nothing required
     for (const mode of ["sandbox", "live"]) {
       const missing = parseEnv({ ...resend, INTEGRATIONS_MODE: mode });
       expect(Object.keys(missing.error?.flatten().fieldErrors ?? {}).sort()).toEqual(["MESSAGING_FROM", "RESEND_API_KEY"]);
       expect(parseEnv({ ...resend, INTEGRATIONS_MODE: mode, RESEND_API_KEY: "re_abc_123", MESSAGING_FROM: "OctavoLab <noreply@example.com>" }).success).toBe(true);
     }
-    expect(parseEnv({ ...base, INTEGRATIONS_MODE: "live" }).success).toBe(true); // provider fake: not required
+    expect(parseEnv({ ...base, INTEGRATIONS_MODE: "live", ALERT_WEBHOOK_URL: "https://hooks.example.com/x" }).success).toBe(true); // provider fake: not required
   });
 
   it("validates the Resend key and sender format without echoing the value", () => {
-    const r = parseEnv({ ...base, MESSAGING_PROVIDER: "resend", INTEGRATIONS_MODE: "live", RESEND_API_KEY: "sk_live_secret_value", MESSAGING_FROM: "noreply@example.com\r\nBcc: x@y.co" });
+    const r = parseEnv({ ...base, ALERT_WEBHOOK_URL: "https://hooks.example.com/x", MESSAGING_PROVIDER: "resend", INTEGRATIONS_MODE: "live", RESEND_API_KEY: "sk_live_secret_value", MESSAGING_FROM: "noreply@example.com\r\nBcc: x@y.co" });
     const errs = r.error?.flatten().fieldErrors ?? {};
     expect(Object.keys(errs).sort()).toEqual(["MESSAGING_FROM", "RESEND_API_KEY"]);
     expect(JSON.stringify(errs)).not.toContain("sk_live_secret_value");
@@ -63,5 +63,13 @@ describe("environment schema", () => {
     expect(parseEnv({ ...base, REQUIRE_OWNER_2FA: "true", TOTP_ENC_KEY: key }).data?.REQUIRE_PRIVILEGED_2FA).toBe(true);
     expect(parseEnv({ ...base, REQUIRE_OWNER_2FA: "true", REQUIRE_PRIVILEGED_2FA: "false" }).data?.REQUIRE_PRIVILEGED_2FA).toBe(false);
     expect(parseEnv({ ...base, TOTP_ISSUER: "Bad:Issuer" }).success).toBe(false);
+  });
+  it("alerts: ALERT_WEBHOOK_URL is required in live mode, must be https, and the mfa threshold defaults to 10", () => {
+    const live = { ...base, NODE_ENV: "production", INTEGRATIONS_MODE: "live" };
+    expect(parseEnv(live).error?.flatten().fieldErrors.ALERT_WEBHOOK_URL?.[0]).toMatch(/required when INTEGRATIONS_MODE=live/);
+    expect(parseEnv({ ...live, ALERT_WEBHOOK_URL: "http://hooks.example.com/x" }).error?.flatten().fieldErrors.ALERT_WEBHOOK_URL?.[0]).toMatch(/https/);
+    const ok = parseEnv({ ...live, ALERT_WEBHOOK_URL: "https://hooks.example.com/x" });
+    expect([ok.success, ok.data?.MFA_FAILED_ALERT_THRESHOLD]).toEqual([true, 10]);
+    expect(parseEnv({ ...base, NODE_ENV: "production", INTEGRATIONS_MODE: "sandbox" }).success).toBe(true);
   });
 });

@@ -2,6 +2,7 @@ import { prisma } from "@octavolab/db";
 import { pino } from "pino";
 import { getMessaging, type MessagingProvider } from "@octavolab/integrations";
 import { env } from "../config/env.js";
+import { checkAlerts, defaultAlertDeps } from "./alerts.js";
 
 /**
  * Outbox dispatcher: at-least-once delivery. Rows are claimed with FOR UPDATE SKIP LOCKED plus a 60 s lease so two
@@ -75,4 +76,8 @@ if (/outbox\.worker\.(js|ts)$/.test(process.argv[1] ?? "")) {
   const deps = defaultDeps();
   const loop = async () => { await dispatchOnce(deps).catch((e) => deps.log.error({ event: "outbox_loop_error", error: String(e) }, "outbox loop error")); setTimeout(loop, 2000); };
   void loop();
+  // Operational alerts (mfa_failed spike, dead letters): evaluated every 60 s in the same process (workers/alerts.ts).
+  const alertDeps = defaultAlertDeps(deps.log);
+  const alertLoop = async () => { await checkAlerts(alertDeps); setTimeout(alertLoop, 60_000); };
+  void alertLoop();
 }

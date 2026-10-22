@@ -75,7 +75,8 @@ Platform
 | Reviewed | The ASVS 4.0.3 mapping above, with the evidence in `docs/LOGBOOK.md` (green CI with image boot, trivy, semgrep, gitleaks, osv-scanner; OIDC deploy and version-checked smoke on staging) |
 | Signed by | Jaime Blum, CTO (approval given in writing in the engineering session: "firmo ASVS"; confirmed by Jaime merging PR #18 from his own GitHub account, 2026-10-22 13:06 UTC, merge commit 4c27ce7) |
 | Date | 2026-10-22 |
-| Accepted open items (must close before production) | passkeys/WebAuthn; alerting on `mfa_failed` and `outbox_dead_letter`; restore test; IAM `env` tag per environment |
+| Accepted open items (must close before production) | passkeys/WebAuthn; restore test (procedure in `docs/runbook.md`, run by Jaime) |
+| Closed in 0.7.4 and 0.7.5 | alerting on `mfa_failed` and `outbox_dead_letter` (worker, webhook, unit); IAM `env` tag per environment (policy, applied by Jaime); 2FA required for operations staff (unit) |
 | Next review | Before the first production deploy, or in 90 days, whichever comes first |
 
 ## Roadmap before any production deploy (Módulo C 6.2)

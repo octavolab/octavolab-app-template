@@ -123,6 +123,7 @@ model Outbox {
   lockedUntil DateTime?
   createdAt   DateTime  @default(now())
   @@index([deliveredAt, createdAt])
+  @@index([deadLetteredAt]) // alert queries: dead letters in the last window
 }
 
 model IdempotencyKey {
@@ -149,4 +150,5 @@ model AuditLog {
   after     Json?
   createdAt DateTime @default(now())
   @@index([entity, entityId])
+  @@index([action, createdAt]) // alert queries: mfa_failed in the last window
 }

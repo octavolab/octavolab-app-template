@@ -34,6 +34,11 @@ export const envSchema = z
     // "true": an owner, admin or operations user without 2FA can sign in but every route except enrollment answers 403
     // MFA_ENROLLMENT_REQUIRED, and those staff roles cannot disable 2FA. Old name REQUIRE_OWNER_2FA is accepted (see parseEnv). Set to "true" in infra/lightsail.json for staging and production.
     REQUIRE_PRIVILEGED_2FA: z.enum(["true", "false"]).default("false").transform((v) => v === "true"),
+    // Alerts (worker, every 60 s): POSTs JSON {text, alert, count, windowMinutes, version} to this HTTPS webhook (Slack,
+    // Teams workflow, Discord or any receiver). Required when INTEGRATIONS_MODE=live; without it alerts are only logged.
+    ALERT_WEBHOOK_URL: z.string().url().refine((v) => v.startsWith("https://"), "must be an https:// URL").optional(),
+    // mfa_failed audit entries in the last 15 minutes (all users) that fire the alert.
+    MFA_FAILED_ALERT_THRESHOLD: z.coerce.number().int().min(1).max(10_000).default(10),
     // Issuer shown in authenticator apps (no colon: it is part of the otpauth label).
     TOTP_ISSUER: z.string().min(1).max(64).regex(/^[^:]+$/, "must not contain ':'").default("OctavoLab"),
   })
@@ -43,6 +48,9 @@ export const envSchema = z
     }
     if (e.NODE_ENV === "production" && !e.INTEGRATIONS_MODE) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["INTEGRATIONS_MODE"], message: "must be set explicitly in production (fake | sandbox | live); it never defaults to fake" });
+    }
+    if (e.INTEGRATIONS_MODE === "live" && !e.ALERT_WEBHOOK_URL) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ALERT_WEBHOOK_URL"], message: "required when INTEGRATIONS_MODE=live (production alerts must reach a person)" });
     }
     const realMode = e.INTEGRATIONS_MODE === "sandbox" || e.INTEGRATIONS_MODE === "live";
     if (e.MESSAGING_PROVIDER === "resend" && realMode) {

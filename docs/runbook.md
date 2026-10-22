@@ -9,6 +9,10 @@ CI deploys with GitHub OIDC: the deploy jobs (only they have `id-token: write`) 
 Managed DB automatic daily snapshots. Restore test quarterly: create DB from snapshot, point staging to it, run smoke.
 ## Outbox dead letters
 The worker logs `"event":"outbox_dead_letter"` (error level) when an event fails 8 times. Find them with `SELECT id, type, "lastError" FROM "Outbox" WHERE "deadLetteredAt" IS NOT NULL;`, fix the cause, then replay as described in `packages/db/prisma/migrations/20261021120200_outbox_dead_letter/ROLLBACK.md`.
+## Alerts (worker, every 60 s)
+Two rules, counted from the database over the last 15 minutes: `mfa_failed_spike` (at least `MFA_FAILED_ALERT_THRESHOLD`, default 10, failed second-factor attempts across all users) and `outbox_dead_letter` (any dead-lettered event). Each fires at most once an hour per rule. Delivery: a JSON POST to `ALERT_WEBHOOK_URL` (https; Slack incoming webhook, Teams workflow or any receiver that accepts `{ "text": ... }`), plus an error log line `"event":"alert_fired"`. `ALERT_WEBHOOK_URL` is required when `INTEGRATIONS_MODE=live`; keep it in the environment's secret in AWS Secrets Manager (it is a credential). Test it after each change: dead-letter a test event in staging or lower the threshold temporarily, and confirm the message arrives. `alert_delivery_failed` in the log means the webhook is wrong or down.
+- `mfa_failed_spike`: read `SELECT "entityId", after->>'ip' AS ip, count(*) FROM "AuditLog" WHERE action = 'mfa_failed' AND "createdAt" > now() - interval '15 minutes' GROUP BY 1, 2 ORDER BY 3 DESC;`. One user from many IPs = password probably leaked: reset the password and revoke sessions. Many users from one IP = credential stuffing: the per-user limits already hold; consider blocking the IP at the edge.
+- `outbox_dead_letter`: see "Outbox dead letters" above.
 ## Incidents
 1. Declare in LOGBOOK with time. 2. Check /api/health, container logs (`aws lightsail get-container-log`). 3. Rollback if a deploy caused it. 4. Notify client with the template in docs/handover. 5. Postmortem within 48 h.
 ## Monthly
