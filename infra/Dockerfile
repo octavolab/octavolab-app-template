@@ -11,6 +11,12 @@ COPY apps ./apps
 COPY packages ./packages
 RUN pnpm install --frozen-lockfile
 RUN pnpm db:generate && pnpm build
+# Runtime gets production dependencies only: build tools (esbuild, vite, typescript, vitest) never ship.
+# A fresh prod-only install from the store (offline) leaves no dev packages in node_modules/.pnpm;
+# the Prisma CLI is a production dependency of packages/db because the app container runs migrate deploy.
+RUN rm -rf node_modules apps/*/node_modules packages/*/node_modules \
+ && CI=true pnpm install --prod --frozen-lockfile --offline \
+ && pnpm --filter @octavolab/db generate
 
 FROM node:22-alpine AS runtime
 # No corepack and no pnpm at runtime: nothing is downloaded when the container starts.

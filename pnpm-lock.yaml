@@ -151,6 +151,9 @@ importers:
       argon2:
         specifier: ^0.41.1
         version: 0.41.1
+      prisma:
+        specifier: ^5.20.0
+        version: 5.22.0
     devDependencies:
       '@electric-sql/pglite':
         specifier: ^0.2.12
@@ -161,9 +164,6 @@ importers:
       dotenv-cli:
         specifier: ^7.4.2
         version: 7.4.4
-      prisma:
-        specifier: ^5.20.0
-        version: 5.22.0
       tsx:
         specifier: ^4.19.1
         version: 4.23.15
