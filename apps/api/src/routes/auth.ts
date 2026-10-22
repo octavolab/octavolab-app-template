@@ -121,7 +121,7 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   r.get("/auth/me", { preHandler: requireAuth(undefined, { allowMfaEnrollment: true }), schema: { tags: ["auth"] } }, async (req) => ({
-    id: req.user!.uid, role: req.user!.role, tenantId: req.user!.tid,
+    id: req.user!.uid, email: req.account!.email, role: req.user!.role, tenantId: req.user!.tid,
     mfaEnabled: req.account!.mfaEnabled, mfaEnrollmentRequired: req.account!.mfaEnrollmentRequired,
   }));
 }

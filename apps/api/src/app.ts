@@ -36,7 +36,13 @@ export async function buildApp(opts: { logStream?: { write(line: string): void }
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  await app.register(helmet, { contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], frameAncestors: ["'none'"] } } });
+  // Stripe Elements (checkout) needs its script, its iframes and its API; nothing else leaves 'self'.
+  await app.register(helmet, { contentSecurityPolicy: { directives: {
+    defaultSrc: ["'self'"], frameAncestors: ["'none'"],
+    scriptSrc: ["'self'", "https://js.stripe.com"],
+    frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
+    connectSrc: ["'self'", "https://api.stripe.com"],
+  } } });
   await app.register(cors, { origin: [env.APP_URL], credentials: true });
   await app.register(cookie, { secret: env.SESSION_SECRET });
   // Rate-limit counters: Redis when REDIS_URL is set (shared by every API instance); otherwise process memory, which is
