@@ -44,7 +44,12 @@ jobs:
       # (apt) and the test run now have their own step timeouts so the next hang names its step.
       - name: Install Playwright browsers
         timeout-minutes: 10
-        run: pnpm exec playwright install --with-deps chromium webkit
+        # Root cause of the E2E hangs (22 and 23 Oct 2026): apt stalled mid-download of a WebKit system dependency
+        # (job log: "Get:24 noble/universe ... libcodec2-1.2 [8998 kB]" then silence until the timeout). apt's default
+        # has no read timeout and no retry, so a stalled mirror connection waits forever; bound it and retry instead.
+        run: |
+          printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-retries >/dev/null
+          pnpm exec playwright install --with-deps chromium webkit
       - name: E2E (390/768/1024/1440 + axe); vite preview proxies /api to the API on :3000
         timeout-minutes: 15
         run: |
