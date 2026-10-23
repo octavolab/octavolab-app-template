@@ -31,6 +31,7 @@ aws iam create-policy --policy-name "acme-deploy-staging" --policy-document file
 - Read and list actions (`Get*`) are on `*` because Lightsail does not support resource-level permissions for them; the list is the minimum `deploy.sh`, `rollback.sh` and the runbook use.
 - `CreateContainerServiceRegistryLogin` (used by `lightsailctl` during `aws lightsail push-container-image`) has no resource type, so it cannot be scoped.
 - Write actions (`RegisterContainerImage`, `CreateContainerServiceDeployment`, `CreateRelationalDatabaseSnapshot`) are allowed only on resources tagged `project=<PROJECT_NAME>` AND `env=<ENV_NAME>` (since 0.7.5), so the staging role cannot deploy to production. Tag the container services and the database with both tags when you create them. **Existing resources created before 0.7.5 carry only `project`: add `env=staging` to the staging service and database BEFORE applying the new policy, or the next staging deploy fails with AccessDenied.**
+- Destructive actions are denied explicitly.
 
 ## Production gate (enforced in AWS)
 Why the gate is in AWS and not in GitHub:
