@@ -17,11 +17,24 @@ describe("adapter selection", () => {
     process.env.NODE_ENV = prev.NODE_ENV;
     process.env.INTEGRATIONS_MODE = prev.MODE ?? "fake";
   });
-  it("selects Resend only when MESSAGING_PROVIDER=resend in sandbox or live mode; fake stays the default", async () => {
+  it("normalizes the mode exactly like the API (case-insensitive; sandbox is the old name of test)", async () => {
+    const prev = process.env.INTEGRATIONS_MODE;
+    try {
+      vi.resetModules();
+      process.env.INTEGRATIONS_MODE = " FAKE ";
+      expect((await import("./index.js")).getMessaging().name).toBe("fake-messaging");
+      vi.resetModules();
+      process.env.INTEGRATIONS_MODE = "prod";
+      await expect(import("./index.js")).rejects.toThrow("INTEGRATIONS_MODE must be one of fake | test | live");
+    } finally {
+      process.env.INTEGRATIONS_MODE = prev ?? "fake";
+    }
+  });
+  it("selects Resend only when MESSAGING_PROVIDER=resend in test or live mode; fake stays the default", async () => {
     const prev = { ...process.env };
     try {
       Object.assign(process.env, { MESSAGING_PROVIDER: "resend", RESEND_API_KEY: "re_TestKey_1234", MESSAGING_FROM: "noreply@example.com" });
-      for (const [mode, name] of [["fake", "fake-messaging"], ["sandbox", "resend"], ["live", "resend"]] as const) {
+      for (const [mode, name] of [["fake", "fake-messaging"], ["test", "resend"], ["sandbox", "resend"], ["live", "resend"]] as const) {
         vi.resetModules();
         process.env.INTEGRATIONS_MODE = mode;
         expect((await import("./index.js")).getMessaging().name).toBe(name);

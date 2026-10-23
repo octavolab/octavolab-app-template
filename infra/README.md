@@ -4,9 +4,10 @@
 |---|---|
 | `Dockerfile` | Multi-stage image (Node 22 alpine + openssl). Runtime runs `prisma migrate deploy` from `packages/db/node_modules/.bin` and then the API; no Corepack or pnpm at runtime. |
 | `lightsail.json` | Container service deployment template (`app`, `worker`, `redis`). |
-| `deploy.sh` | Build, push and deploy to a Lightsail container service, carrying over the ACTIVE deployment's environment. |
+| `deploy.sh` | Build (git SHA baked in), push and deploy to a Lightsail container service. Aborts if a deployment is in progress or the active one changes meanwhile; builds the environment from the ACTIVE deployment (`deploy_env.py`) and prints changed key names only; waits for the new version to be ACTIVE. |
+| `deploy_env.py` | Environment merge and key-name diff used by `deploy.sh` (unit tests: `test_deploy_env.py`, run in CI). |
 | `rollback.sh` | Re-activate a previous deployment version. |
-| `smoke.sh` | Post-deploy smoke test (health, home, HSTS). |
+| `smoke.sh` | Post-deploy smoke test: `/api/health` ok AND `version` == deployed git SHA; home; HSTS. |
 | `iam-policy-project.json` | Permissions policy for the per-project deploy role. |
 
 ## AWS credentials (one model everywhere)

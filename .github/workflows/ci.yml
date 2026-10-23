@@ -37,6 +37,8 @@ jobs:
       - name: Integration tests against PostgreSQL (real database, migrations applied)
         run: INTEGRATION=1 pnpm --filter api test:int
       - run: pnpm test
+      - name: Deploy env merge tests (infra/deploy_env.py)
+        run: python3 -m unittest infra/test_deploy_env.py
       - name: Migrations exist and are applied (Prisma has no down migrations; rollback plan per migration in its folder)
         run: test -n "$(ls packages/db/prisma/migrations 2>/dev/null)" && pnpm --filter @octavolab/db exec prisma migrate status && pnpm --filter @octavolab/db exec prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
       - run: pnpm build
@@ -75,22 +77,38 @@ jobs:
       # osv-scanner exits non-zero when it finds vulnerabilities; there is no --fail-on-vuln flag.
       - name: osv-scanner (pnpm lockfile)
         run: docker run --rm -v "$PWD:/src" ghcr.io/google/osv-scanner:v1.9.1 --lockfile=/src/pnpm-lock.yaml
-      - name: build image
-        run: docker build -f infra/Dockerfile -t app:ci .
-      # Boot the real image against PostgreSQL: proves migrate deploy and server start exactly as in Lightsail.
-      - name: boot image (migrate + health)
+      - name: build image (git SHA baked in, as infra/deploy.sh does)
+        run: docker build -f infra/Dockerfile --build-arg "GIT_SHA=$(git rev-parse --short=7 HEAD)" -t app:ci .
+      # Boot the real image against PostgreSQL: proves migrate deploy and server start exactly as in Lightsail, with
+      # production-strength secrets generated for this run only (the API refuses weak ones in production).
+      - name: boot image (migrate + health + version + create-owner + fail-closed config)
         run: |
+          set -euo pipefail
+          SHA="$(git rev-parse --short=7 HEAD)"
+          DB_PW="$(openssl rand -hex 24)"
+          DB_URL="postgresql://app:${DB_PW}@db:5432/app"
           docker network create ci
-          docker run -d --name db --network ci -e POSTGRES_USER=app -e POSTGRES_PASSWORD=app -e POSTGRES_DB=app "postgres:16-alpine@sha256:deb28ee471183cb0c303113dac9b2433c51eeeeb678def7af9a9ec5820367815"
+          docker run -d --name db --network ci -e POSTGRES_USER=app -e POSTGRES_PASSWORD="$DB_PW" -e POSTGRES_DB=app "postgres:16-alpine@sha256:deb28ee471183cb0c303113dac9b2433c51eeeeb678def7af9a9ec5820367815"
           for i in $(seq 1 30); do docker exec db pg_isready -U app && break; sleep 2; done
-          docker run -d --name app --network ci -p 3000:3000 \
-            -e NODE_ENV=production -e INTEGRATIONS_MODE=fake -e DATABASE_URL=postgresql://app:app@db:5432/app \
-            -e SESSION_SECRET="$(openssl rand -base64 48)" -e TOTP_ENC_KEY="$(openssl rand -base64 32)" -e REQUIRE_PRIVILEGED_2FA=true \
-            -e APP_URL=http://localhost:3000 -e OPS_EMAIL=ops@ci.invalid app:ci
-          for i in $(seq 1 30); do curl -fsS localhost:3000/api/health | tee /tmp/h.json | grep -q '"ok":true' && break; sleep 2; done
-          docker logs app | tail -20
-          grep -q '"ok":true' /tmp/h.json
+          COMMON=(-e NODE_ENV=production -e INTEGRATIONS_MODE=Fake -e DATABASE_URL="$DB_URL" -e TOTP_ENC_KEY="$(openssl rand -base64 32)" -e REQUIRE_PRIVILEGED_2FA=true -e APP_URL=http://localhost:3000 -e OPS_EMAIL=ops@ci.invalid)
+          docker run -d --name app --network ci -p 3000:3000 "${COMMON[@]}" -e SESSION_SECRET="$(openssl rand -base64 48)" app:ci
+          for i in $(seq 1 30); do curl -fsS localhost:3000/api/health > /tmp/h.json && grep -q '"ok":true' /tmp/h.json && break; sleep 2; done
+          docker logs app 2>&1 | tail -20
+          python3 -c "import json,sys; h=json.load(open('/tmp/h.json')); assert h['ok'] is True and h['version']==sys.argv[1] and h['mode']=='fake', h" "$SHA"
+          docker logs app 2>&1 | grep -q '"event":"startup".*"integrationsMode":"fake"'
           docker exec app sh -c 'test ! -e /usr/local/bin/npm && ! ls node_modules/.pnpm | grep -qE "^(esbuild|vite|typescript)@"'
+          # One-shot create-owner: password on stdin only; a second run never modifies the existing user (exit 3).
+          OWNER_PW="$(openssl rand -base64 24)"
+          printf '%s\n' "$OWNER_PW" | docker run --rm -i --network ci -e DATABASE_URL="$DB_URL" app:ci node apps/api/dist/cli/create-owner.js --email owner@ci.invalid
+          set +e; printf '%s\n' "$OWNER_PW" | docker run --rm -i --network ci -e DATABASE_URL="$DB_URL" app:ci node apps/api/dist/cli/create-owner.js --email owner@ci.invalid; rc=$?; set -e
+          test "$rc" -eq 3
+          # Fail closed: a weak secret or a leftover BOOTSTRAP_* variable stops the process at boot (non-zero, variable named).
+          set +e
+          out="$(docker run --rm --network ci "${COMMON[@]}" -e SESSION_SECRET=change-me-32-chars-minimum-random app:ci node apps/api/dist/server.js 2>&1)"; rc1=$?
+          out2="$(docker run --rm --network ci "${COMMON[@]}" -e SESSION_SECRET="$(openssl rand -base64 48)" -e BOOTSTRAP_OWNER_EMAIL=x@ci.invalid app:ci node apps/api/dist/server.js 2>&1)"; rc2=$?
+          set -e
+          test "$rc1" -ne 0 && grep -q SESSION_SECRET <<<"$out" && ! grep -q change-me <<<"$out"
+          test "$rc2" -ne 0 && grep -q BOOTSTRAP_OWNER_EMAIL <<<"$out2"
       - name: trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with: { image-ref: app:ci, severity: "HIGH,CRITICAL", exit-code: "1", ignore-unfixed: true }

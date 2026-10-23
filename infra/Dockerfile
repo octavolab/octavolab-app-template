@@ -27,6 +27,12 @@ RUN apk add --no-cache openssl && addgroup -S app && adduser -S app -G app \
            /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 WORKDIR /app
 COPY --from=base /app ./
+# The deployed commit, baked into the image (read by apps/api/src/config/env.ts -> /api/health "version"). infra/deploy.sh
+# and CI pass --build-arg GIT_SHA=$(git rev-parse --short=7 HEAD). Never an environment variable: Lightsail env values
+# can be hand-edited or carried over stale between deployments. Anything but a hex SHA is recorded as "unknown" (health: "dev").
+ARG GIT_SHA=unknown
+RUN case "$GIT_SHA" in *[!0-9a-f]*|"") echo unknown;; *) echo "$GIT_SHA";; esac > /app/VERSION
+LABEL org.opencontainers.image.revision=$GIT_SHA
 ENV NODE_ENV=production PORT=3000
 USER app
 EXPOSE 3000

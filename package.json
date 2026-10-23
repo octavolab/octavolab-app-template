@@ -15,6 +15,7 @@
     "db:migrate": "pnpm --filter @octavolab/db migrate",
     "db:seed": "pnpm --filter @octavolab/db seed",
     "db:generate": "pnpm --filter @octavolab/db generate",
+    "create-owner": "pnpm --filter api create-owner:dev",
     "licenses": "pnpm licenses list --json"
   },
   "devDependencies": {
