@@ -10,6 +10,8 @@ permissions: { contents: read }
 jobs:
   quality:
     runs-on: ubuntu-latest
+    # A hung step (the E2E run hung once on 22 Oct 2026) fails the job instead of holding the runner for 6 hours.
+    timeout-minutes: 30
     services:
       postgres: { image: "postgres:16-alpine@sha256:deb28ee471183cb0c303113dac9b2433c51eeeeb678def7af9a9ec5820367815", env: { POSTGRES_USER: app, POSTGRES_PASSWORD: app, POSTGRES_DB: app }, ports: ["5432:5432"], options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10 }
       redis: { image: "redis:7-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1", ports: ["6379:6379"] }
@@ -124,9 +126,12 @@ jobs:
       - run: EXPECTED_VERSION=${{ steps.deploy.outputs.version }} infra/smoke.sh ${{ vars.STAGING_URL }}
   deploy-prod:
     needs: [quality, security, semgrep]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # Production gate that works on every GitHub plan: required reviewers on private repositories need GitHub Enterprise,
+    # so the job runs only when the tag was pushed by the approver named in the repository variable PROD_APPROVER
+    # (only admins can change variables); a re-run must also come from that approver (triggering_actor). Empty or unset PROD_APPROVER = production never deploys. Approval in chat (N07) still applies.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.PROD_APPROVER != '' && github.actor == vars.PROD_APPROVER && github.triggering_actor == vars.PROD_APPROVER
     runs-on: ubuntu-latest
-    environment: production   # requires manual approval in GitHub + Jaime's approval in chat (N07)
+    environment: production
     permissions: { contents: read, id-token: write }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
