@@ -95,7 +95,9 @@ jobs:
           for i in $(seq 1 30); do curl -fsS localhost:3000/api/health > /tmp/h.json && grep -q '"ok":true' /tmp/h.json && break; sleep 2; done
           docker logs app 2>&1 | tail -20
           python3 -c "import json,sys; h=json.load(open('/tmp/h.json')); assert h['ok'] is True and h['version']==sys.argv[1] and h['mode']=='fake', h" "$SHA"
-          docker logs app 2>&1 | grep -q '"event":"startup".*"integrationsMode":"fake"'
+          # grep without -q reads all input: with -q it exits at the first match and, under pipefail, docker logs dies of
+          # SIGPIPE (exit 141) whenever the log is longer than one pipe buffer (run 39937556839).
+          docker logs app 2>&1 | grep '"event":"startup".*"integrationsMode":"fake"' > /dev/null
           docker exec app sh -c 'test ! -e /usr/local/bin/npm && ! ls node_modules/.pnpm | grep -qE "^(esbuild|vite|typescript)@"'
           # One-shot create-owner: password on stdin only; a second run never modifies the existing user (exit 3).
           OWNER_PW="$(openssl rand -base64 24)"
