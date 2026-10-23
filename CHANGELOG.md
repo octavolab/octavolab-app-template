@@ -16,6 +16,7 @@ All notable changes to this project are documented here (Keep a Changelog, semve
   ADR 0006 (proposed): ECS Fargate + Secrets Manager.
 
 ### Changed
+- CI: the E2E browser install no longer hangs on a stalled apt mirror (30 s apt timeouts with 3 retries, 10-minute ceiling); twice on 23 Oct 2026 it held `quality` until the 30-minute job limit and blocked the staging deploy.
 - `INTEGRATIONS_MODE` is `fake | test | live`, case-insensitive, normalized by one shared function for the API, worker and
   integrations package; `sandbox` is accepted as the old name of `test`; invalid values fail fast. `test` and `live` require
   `PAYMENTS_PROVIDER=stripe` with a matching Stripe key and webhook secret, and `MESSAGING_PROVIDER=resend` with its key

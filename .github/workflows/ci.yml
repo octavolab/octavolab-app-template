@@ -49,7 +49,12 @@ jobs:
           pnpm db:seed
           pnpm --filter api start & pnpm --filter web preview --port 5173 --strictPort &
           for i in $(seq 1 30); do curl -fsS localhost:3000/api/health >/dev/null && break; sleep 1; done
-          E2E_BASE_URL=http://localhost:5173 API_URL=http://localhost:3000 pnpm exec playwright install --with-deps chromium webkit && pnpm e2e
+          # A stalled apt mirror download hung this step until the job timeout twice on 23 Oct 2026 (runs 39915145059,
+          # 39928829625): apt waits forever on a dead connection by default. Abort stalled downloads after 30 s and retry,
+          # and give the browser install its own ceiling so a slow mirror fails in minutes, not at the 30-minute job limit.
+          printf 'Acquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::Retries "3";\n' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
+          timeout 600 pnpm exec playwright install --with-deps chromium webkit
+          E2E_BASE_URL=http://localhost:5173 API_URL=http://localhost:3000 pnpm e2e
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with: { name: playwright-report, path: playwright-report }
