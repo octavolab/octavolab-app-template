@@ -12,7 +12,7 @@ All notable changes to this project are documented here (Keep a Changelog, semve
 
 ### Production readiness (added 22 Oct 2026, same PR)
 - `WriteOnlyProjectTaggedResources` also requires `aws:ResourceTag/env = ${ENV_NAME}`: the staging role can no longer deploy to production resources. Tag existing staging resources `env=staging` before applying.
-- `deploy-prod` gated by `vars.PROD_APPROVER` (tag pusher must match), because required reviewers on private repositories need GitHub Enterprise.
+- `deploy-prod` gated by `vars.PROD_APPROVER` (tag pusher and, on a re-run, the person re-running must match), because required reviewers on private repositories need GitHub Enterprise.
 - `quality` job `timeout-minutes: 30` (the E2E step hung once on run of 22 Oct 2026).
 
 ## [0.7.3] - 2026-10-22

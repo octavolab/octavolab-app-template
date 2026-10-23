@@ -110,8 +110,8 @@ jobs:
     needs: [quality, security, semgrep]
     # Production gate that works on every GitHub plan: required reviewers on private repositories need GitHub Enterprise,
     # so the job runs only when the tag was pushed by the approver named in the repository variable PROD_APPROVER
-    # (only admins can change variables). Empty or unset PROD_APPROVER = production never deploys. Approval in chat (N07) still applies.
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.PROD_APPROVER != '' && github.actor == vars.PROD_APPROVER
+    # (only admins can change variables); a re-run must also come from that approver (triggering_actor). Empty or unset PROD_APPROVER = production never deploys. Approval in chat (N07) still applies.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.PROD_APPROVER != '' && github.actor == vars.PROD_APPROVER && github.triggering_actor == vars.PROD_APPROVER
     runs-on: ubuntu-latest
     environment: production
     permissions: { contents: read, id-token: write }
