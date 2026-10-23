@@ -19,17 +19,22 @@ The role's trust policy must restrict `token.actions.githubusercontent.com:sub` 
 `repo:<org>/<repo>:environment:staging` for the staging role and `repo:<org>/<repo>:environment:production` for the production role.
 
 ## The permissions policy
-`iam-policy-project.json` contains the literal placeholder `${PROJECT_NAME}`. Substitute it before creating the policy:
+`iam-policy-project.json` contains the literal placeholders `${PROJECT_NAME}` and `${ENV_NAME}` (`staging` or `prod`, the same value `deploy.sh` receives). Create one policy per environment:
 
 ```bash
-PROJECT_NAME=acme envsubst '${PROJECT_NAME}' < infra/iam-policy-project.json > /tmp/policy.json
-aws iam create-policy --policy-name "acme-deploy" --policy-document file:///tmp/policy.json
+PROJECT_NAME=acme ENV_NAME=staging envsubst '${PROJECT_NAME} ${ENV_NAME}' < infra/iam-policy-project.json > /tmp/policy.json
+aws iam create-policy --policy-name "acme-deploy-staging" --policy-document file:///tmp/policy.json
 ```
+
+- `ProjectSecrets` is scoped to `<PROJECT_NAME>/<ENV_NAME>-*` (Secrets Manager appends a 6-character suffix to the name), so the staging role can never read `<PROJECT_NAME>/prod`. A policy created before 0.7.4 with `<PROJECT_NAME>/*` must be updated to this scope before the production secret exists (IAM change: Jaime applies it, N07).
 
 - Read and list actions (`Get*`) are on `*` because Lightsail does not support resource-level permissions for them; the list is the minimum `deploy.sh`, `rollback.sh` and the runbook use.
 - `CreateContainerServiceRegistryLogin` (used by `lightsailctl` during `aws lightsail push-container-image`) has no resource type, so it cannot be scoped.
-- Write actions (`RegisterContainerImage`, `CreateContainerServiceDeployment`, `CreateRelationalDatabaseSnapshot`) are allowed only on resources tagged `project=<PROJECT_NAME>`. Tag the container services and the database when you create them.
+- Write actions (`RegisterContainerImage`, `CreateContainerServiceDeployment`, `CreateRelationalDatabaseSnapshot`) are allowed only on resources tagged `project=<PROJECT_NAME>` AND `env=<ENV_NAME>` (since 0.7.4), so the staging role cannot deploy to production. Tag the container services and the database with both tags when you create them. **Existing resources created before 0.7.4 carry only `project`: add `env=staging` to the staging service and database BEFORE applying the new policy, or the next staging deploy fails with AccessDenied.**
 - Destructive actions are denied explicitly.
+
+## Production gate (any GitHub plan)
+Required reviewers on environments of private repositories need GitHub Enterprise (docs.github.com, "Managing environments for deployment", read 22 Oct 2026). `deploy-prod` therefore runs only when the `v*` tag was pushed by the GitHub user named in the repository variable `PROD_APPROVER`; with the variable empty or unset, production never deploys. Only repository admins can change variables. The chat approval (N07) still applies before the tag is pushed. A re-run of that workflow counts as a new trigger: it deploys only if the person re-running it is also `PROD_APPROVER`.
 
 ## Verified locally vs only in a real run
 Verified locally: the policy is valid JSON; the Dockerfile CMD paths match the pnpm layout of this repo (`packages/db/node_modules/.bin/prisma`, `apps/api/dist/server.js`). The action names were taken from the Lightsail Service Authorization Reference but have not been exercised against AWS.

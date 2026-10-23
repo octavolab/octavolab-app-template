@@ -1,6 +1,20 @@
 # Changelog
 All notable changes to this project are documented here (Keep a Changelog, semver).
 
+## [0.7.4] - 2026-10-22
+
+### Security
+- `ProjectSecrets` in `infra/iam-policy-project.json` is scoped per environment (`${PROJECT_NAME}/${ENV_NAME}-*`): the staging deploy role can no longer read `<project>/prod`. One policy per environment (`infra/README.md`). The live AWS policy must be updated by Jaime before the production secret exists (N07).
+
+### Docs
+- `CLAUDE.md` points to kit `octavolab-core@7.4.0`.
+- LOGBOOK: smoke failure of run 39784069128 recorded (fixed by 573d10c) and the independent audit result.
+
+### Production readiness (added 22 Oct 2026, same PR)
+- `WriteOnlyProjectTaggedResources` also requires `aws:ResourceTag/env = ${ENV_NAME}`: the staging role can no longer deploy to production resources. Tag existing staging resources `env=staging` before applying.
+- `deploy-prod` gated by `vars.PROD_APPROVER` (tag pusher and, on a re-run, the person re-running must match), because required reviewers on private repositories need GitHub Enterprise.
+- `quality` job `timeout-minutes: 30` (the E2E step hung once on run of 22 Oct 2026).
+
 ## [0.7.3] - 2026-10-22
 
 ### Final audit follow-ups (48/50 with Cumplimiento at 4)

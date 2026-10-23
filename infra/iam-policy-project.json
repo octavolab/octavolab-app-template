@@ -35,7 +35,8 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:ResourceTag/project": "${PROJECT_NAME}"
+          "aws:ResourceTag/project": "${PROJECT_NAME}",
+          "aws:ResourceTag/env": "${ENV_NAME}"
         }
       }
     },
@@ -48,7 +49,7 @@
         "secretsmanager:CreateSecret",
         "secretsmanager:TagResource"
       ],
-      "Resource": "arn:aws:secretsmanager:*:*:secret:${PROJECT_NAME}/*"
+      "Resource": "arn:aws:secretsmanager:*:*:secret:${PROJECT_NAME}/${ENV_NAME}-*"
     },
     {
       "Sid": "DenyDestructive",
