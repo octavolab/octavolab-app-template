@@ -52,6 +52,11 @@ jobs:
           # A stalled apt mirror download hung this step until the job timeout twice on 23 Oct 2026 (runs 39915145059,
           # 39928829625): apt waits forever on a dead connection by default. Abort stalled downloads after 30 s and retry,
           # and give the browser install its own ceiling so a slow mirror fails in minutes, not at the 30-minute job limit.
+          # Run 39931303271 showed the Azure mirror trickling (fonts at ~30 KB/s, never idle long enough to time out), so
+          # download from archive.ubuntu.com first; the runner's mirror list keeps the other entries as fallbacks.
+          for f in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+            if [ -f "$f" ]; then sudo sed -i 's#http://azure\.archive\.ubuntu\.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$f"; fi
+          done
           printf 'Acquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::Retries "3";\n' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
           timeout 600 pnpm exec playwright install --with-deps chromium webkit
           E2E_BASE_URL=http://localhost:5173 API_URL=http://localhost:3000 pnpm e2e
