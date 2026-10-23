@@ -30,6 +30,30 @@ All notable changes to this project are documented here (Keep a Changelog, semve
 - CI: image built with the SHA; the image boot step asserts version and mode, runs `create-owner` as a one-shot container
   (and again: exit 3), and proves a weak secret and a `BOOTSTRAP_*` variable stop the server.
 
+## [0.7.5] - 2026-10-23
+Production readiness (SECURITY.md accepted items).
+### Added
+- Alerts in the worker every 60 s: `mfa_failed_spike` (MFA_FAILED_ALERT_THRESHOLD failed codes in 15 min, default 10) and `outbox_dead_letter`, posted to `ALERT_WEBHOOK_URL` (https; required when `INTEGRATIONS_MODE=live`) with a one-hour cooldown per rule; never through the outbox (unit).
+- Migration `20261022120000_alert_indexes` (expand only): `AuditLog(action, createdAt)` and `Outbox(deadLetteredAt)`.
+- ADR 0005: migrations stay at app container start on Lightsail (no network path from CI to a private database, no one-shot tasks); `validate:sql` now fails when a migration's `ROLLBACK.md` does not declare "Expand only", "Contract step" or "Initial migration".
+- Runbook: step-by-step restore test with measured recovery time; snapshot before every production deploy; "Alerts" section.
+### Changed
+- `REQUIRE_PRIVILEGED_2FA=true` now also forces the `operations` role to enroll and keep 2FA (it reads every order of the tenant) (unit).
+### Moved here from the 0.7.4 notes
+- `WriteOnlyProjectTaggedResources` also requires `aws:ResourceTag/env = ${ENV_NAME}`: the staging role can no longer deploy to production resources (tag existing staging resources `env=staging` before applying).
+- `quality` job `timeout-minutes: 30` (the E2E step hung once on 22 Oct 2026).
+### Fixed after the independent reviews (same release)
+- Production gate in AWS: the prod role trusts only an OIDC subject customized with `repo`, `context`, `ref` and `actor_id` (environment `production`, a `v*` tag and the approver's numeric id); residual risk documented; the workflow `if` (now also `github.triggering_actor`) is defense in depth (infra/README "Production gate"). `deploy-prod` gets `timeout-minutes: 45` and a concurrency group; `deploy.sh prod` snapshots the database after the image push and waits until the snapshot is `available` before deploying (fails closed); the deploy policy gains `GetRelationalDatabaseSnapshot`.
+- Alerts: the cooldown starts only after a successful delivery; dead letters are counted since the evaluation time of the last delivered alert.
+- CI: browser install and E2E split into their own steps with timeouts (10 and 15 min), a readiness check for the API and the web preview, and a 10-minute Playwright global timeout in CI; the E2E step had hung until the job timeout twice on 22 Oct 2026. On 23 Oct the job log showed the network was fine and the step silent afterwards; most likely a debconf question waiting on stdin (Playwright's own `sudo` drops `DEBIAN_FRONTEND`). The system deps are now installed by the workflow as root with `DEBIAN_FRONTEND=noninteractive`, stdin closed, apt read timeouts and retries, an 8-minute bound and a process-tree dump at 7 minutes [to confirm on the next runs].
+- Runbook: 0.7.5 rollout note for operations users; restore test re-runs the deploy job instead of pushing to `main`.
+- SECURITY.md: the signed sign-off table is restored as signed; changes go to "Amendment 1", pending Jaime's re-sign.
+- Docs: `env=prod` tag for production resources; negative IAM test; ADR 0005 lock note; restore test with `INTEGRATIONS_MODE=fake`; Slack is the webhook format known to work.
+### Not done (stays open)
+- Node 24: the `node:24-alpine` digest could not be resolved from the build session (no registry access); Dependabot (docker) proposes it after its cooldown. Node 22 is in maintenance until April 2027.
+- Restore test: procedure written; it runs in Jaime's AWS session with a temporary paid database.
+- Passkeys (WebAuthn).
+
 ## [0.7.4] - 2026-10-22
 
 ### Security
@@ -38,11 +62,6 @@ All notable changes to this project are documented here (Keep a Changelog, semve
 ### Docs
 - `CLAUDE.md` points to kit `octavolab-core@7.4.0`.
 - LOGBOOK: smoke failure of run 39784069128 recorded (fixed by 573d10c) and the independent audit result.
-
-### Production readiness (added 22 Oct 2026, same PR)
-- `WriteOnlyProjectTaggedResources` also requires `aws:ResourceTag/env = ${ENV_NAME}`: the staging role can no longer deploy to production resources. Tag existing staging resources `env=staging` before applying.
-- `deploy-prod` gated by `vars.PROD_APPROVER` (tag pusher and, on a re-run, the person re-running must match), because required reviewers on private repositories need GitHub Enterprise.
-- `quality` job `timeout-minutes: 30` (the E2E step hung once on run of 22 Oct 2026).
 
 ## [0.7.3] - 2026-10-22
 

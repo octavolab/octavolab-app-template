@@ -46,9 +46,10 @@ describe("environment schema", () => {
     expect(parseEnv({ ...resend }).success).toBe(true); // fake mode: the fake adapter is used, nothing required
     const stripe = { PAYMENTS_PROVIDER: "stripe", STRIPE_WEBHOOK_SECRET: "whsec_xxx" };
     for (const [mode, key] of [["test", "sk_test_xxx"], ["live", "sk_live_xxx"]] as const) {
-      const missing = parseEnv({ ...resend, ...stripe, STRIPE_SECRET_KEY: key, INTEGRATIONS_MODE: mode });
+      const alert = mode === "live" ? { ALERT_WEBHOOK_URL: "https://hooks.example.com/x" } : {};
+      const missing = parseEnv({ ...resend, ...stripe, ...alert, STRIPE_SECRET_KEY: key, INTEGRATIONS_MODE: mode });
       expect(Object.keys(errors(missing)).sort()).toEqual(["MESSAGING_FROM", "RESEND_API_KEY"]);
-      expect(parseEnv({ ...resend, ...stripe, STRIPE_SECRET_KEY: key, INTEGRATIONS_MODE: mode, RESEND_API_KEY: "re_abc_123", MESSAGING_FROM: "OctavoLab <noreply@example.com>" }).success).toBe(true);
+      expect(parseEnv({ ...resend, ...stripe, ...alert, STRIPE_SECRET_KEY: key, INTEGRATIONS_MODE: mode, RESEND_API_KEY: "re_abc_123", MESSAGING_FROM: "OctavoLab <noreply@example.com>" }).success).toBe(true);
     }
   });
 
@@ -105,7 +106,7 @@ describe("INTEGRATIONS_MODE (fake | test | live)", () => {
   });
 
   it("live needs Stripe LIVE keys", () => {
-    const keys = { PAYMENTS_PROVIDER: "stripe", STRIPE_WEBHOOK_SECRET: "whsec_xxx", MESSAGING_PROVIDER: "resend", RESEND_API_KEY: "re_xxx", MESSAGING_FROM: "noreply@example.com" };
+    const keys = { PAYMENTS_PROVIDER: "stripe", STRIPE_WEBHOOK_SECRET: "whsec_xxx", MESSAGING_PROVIDER: "resend", RESEND_API_KEY: "re_xxx", MESSAGING_FROM: "noreply@example.com", ALERT_WEBHOOK_URL: "https://hooks.example.com/x" };
     expect(errors(parseEnv({ ...base, ...keys, INTEGRATIONS_MODE: "live", STRIPE_SECRET_KEY: "sk_test_xxx" })).STRIPE_SECRET_KEY?.[0]).toMatch(/Stripe live key/);
     expect(parseEnv({ ...base, ...keys, INTEGRATIONS_MODE: "LIVE", STRIPE_SECRET_KEY: "sk_live_xxx" }).success).toBe(true);
   });
@@ -156,5 +157,14 @@ describe("version baked into the image", () => {
     process.env.APP_VERSION = "9553b0e";
     expect(readBuildVersion(path.join(dir, "missing"))).toBe("dev");
     delete process.env.APP_VERSION;
+  });
+  it("alerts: ALERT_WEBHOOK_URL is required in live mode, must be https, is never echoed, and the mfa threshold defaults to 10", () => {
+    const live = { ...base, NODE_ENV: "production", INTEGRATIONS_MODE: "live" };
+    expect(parseEnv(live).error?.flatten().fieldErrors.ALERT_WEBHOOK_URL?.[0]).toMatch(/required when INTEGRATIONS_MODE=live/);
+    const plain = parseEnv({ ...live, ALERT_WEBHOOK_URL: "http://hooks.example.com/secret-token-123" });
+    expect(plain.error?.flatten().fieldErrors.ALERT_WEBHOOK_URL?.[0]).toMatch(/https/);
+    expect(JSON.stringify(plain.error?.flatten())).not.toContain("secret-token-123"); // the URL is a credential
+    expect(parseEnv({ ...live, ALERT_WEBHOOK_URL: "https://hooks.example.com/x" }).error?.flatten().fieldErrors.ALERT_WEBHOOK_URL).toBeUndefined();
+    expect(parseEnv({ ...base, NODE_ENV: "development" }).data?.MFA_FAILED_ALERT_THRESHOLD).toBe(10);
   });
 });

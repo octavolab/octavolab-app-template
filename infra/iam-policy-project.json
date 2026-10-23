@@ -12,6 +12,7 @@
         "lightsail:GetContainerServiceMetricData",
         "lightsail:GetContainerAPIMetadata",
         "lightsail:GetRelationalDatabase",
+        "lightsail:GetRelationalDatabaseSnapshot",
         "lightsail:GetRelationalDatabaseSnapshots"
       ],
       "Resource": "*"

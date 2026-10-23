@@ -2,6 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
+  // CI: the whole run stops after 10 minutes instead of holding the job (a hang on 22 Oct 2026 ran to the job timeout).
+  globalTimeout: process.env.CI ? 10 * 60_000 : 0,
   retries: process.env.CI ? 2 : 0,
   reporter: [["list"], ["html", { open: "never" }]],
   use: { baseURL: process.env.E2E_BASE_URL ?? "http://localhost:5173", trace: "on-first-retry" },

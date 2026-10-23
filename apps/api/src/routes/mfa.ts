@@ -51,7 +51,7 @@ export async function registerMfaRoutes(app: FastifyInstance, limiter: MfaLimite
 
   r.post("/auth/2fa/disable", {
     preHandler: [requireAuth([...STAFF]), limited],
-    schema: { tags: ["auth", "2fa"], summary: "Disable 2FA with the password and a code or recovery code", description: "409 MFA_REQUIRED for owners and admins while REQUIRE_PRIVILEGED_2FA=true. Revokes the user's other sessions.", body: z.object({ password: z.string().min(8).max(200) }).merge(SecondFactor.innerType()).strict().refine((b) => Boolean(b.code) !== Boolean(b.recoveryCode), { message: "send exactly one of code or recoveryCode" }) },
+    schema: { tags: ["auth", "2fa"], summary: "Disable 2FA with the password and a code or recovery code", description: "409 MFA_REQUIRED for owner, admin and operations while REQUIRE_PRIVILEGED_2FA=true. Revokes the user's other sessions.", body: z.object({ password: z.string().min(8).max(200) }).merge(SecondFactor.innerType()).strict().refine((b) => Boolean(b.code) !== Boolean(b.recoveryCode), { message: "send exactly one of code or recoveryCode" }) },
   }, async (req, reply) => {
     const res = await counted(req.user!.uid, () => disable(req.user!.uid, req.body.password, req.body, meta(req)));
     reissueSession(reply, req.user!, res.sessionVersion);

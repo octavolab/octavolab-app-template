@@ -39,4 +39,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://localhost:3000/api/health || exit 1
 # The Prisma CLI is a dependency of packages/db (pnpm keeps its bin there, not in the root node_modules/.bin).
 # The worker container overrides this command (infra/lightsail.json), so only the app container migrates.
+# Why migrations run here and not as a separate deploy step: docs/adr/0005-migrations-at-container-start.md.
 CMD ["sh", "-c", "packages/db/node_modules/.bin/prisma migrate deploy --schema packages/db/prisma/schema.prisma && node apps/api/dist/server.js"]

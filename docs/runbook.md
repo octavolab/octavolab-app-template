@@ -1,8 +1,18 @@
 # Runbook
 ## Deploy
 Staging: merge to `main` → CI runs `infra/deploy.sh staging` (GitHub OIDC role, one staging deploy at a time) and then
-`infra/smoke.sh`. Production: `git tag vX.Y.Z && git push --tags` → approve in the GitHub `production` environment → Jaime
-approves in chat (N07). Never deploy by hand while CI is deploying, and never edit variables in the console during a deploy.
+`infra/smoke.sh`. Never deploy by hand while CI is deploying, and never edit variables in the console during a deploy.
+
+**Production** (GitHub Free plan: no required reviewers or tag rulesets on this private repository, so the gate is in AWS):
+1. Jaime approves in chat (N07).
+2. The approver checks the workflow changes being released: `git diff <last tag>..HEAD -- .github/`.
+3. The user named in the repository variable `PROD_APPROVER` pushes the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+4. `deploy.sh prod` pushes the image, merges the secret, takes the snapshot `<project>-prod-db-pre-<sha>-<UTC time>` and
+   waits until it is `available`. No snapshot, no deploy.
+5. Migrations run when the new app container starts (ADR 0005). If one fails, the new container fails its health check and
+   the previous deployment stays active.
+Credentials: only the approver gets production credentials once the AWS trust in infra/README.md "Production gate" is in
+place. Until then the workflow `if` is the only check, and a writer can bypass it.
 
 What `infra/deploy.sh` guarantees (details in the script header):
 1. **Lock.** It aborts (exit 3, nothing changed) if Lightsail shows a deployment in progress (`DEPLOYING`, `UPDATING`,
@@ -23,19 +33,48 @@ What `infra/deploy.sh` guarantees (details in the script header):
 First deploy of a brand-new service: create it with the variables listed in "Rotate secrets" (generated values, never
 typed passwords) using `aws lightsail create-container-service-deployment` from a file outside the repo, then deploy
 normally. The API refuses to boot without them or with weak values (`Invalid environment: { VARIABLE: [rule] }`, names
-and rules only).
+and rules only). Production in live mode also needs `ALERT_WEBHOOK_URL` (runbook "Alerts").
 ## AWS credentials
 CI deploys with GitHub OIDC: the deploy jobs (only they have `id-token: write`) assume `AWS_ROLE_STAGING` or `AWS_ROLE_PROD` with `aws-actions/configure-aws-credentials`. Humans use a short-lived session for the same role (`aws sso login` or `aws sts assume-role` with MFA). No IAM user access keys exist for deploys. Policy and trust details: `infra/README.md`.
 ## Rollback
 `infra/rollback.sh <service> <version>`; verify with `infra/smoke.sh`.
 ## Backups and restore
-Managed DB automatic daily snapshots. Restore test quarterly: create DB from snapshot, point staging to it, run smoke.
+Managed DB automatic daily snapshots. Restore test before the first production launch and then quarterly (ASVS accepted item; done by Jaime with his SSO profile, because the deploy role cannot create or delete databases). It creates a temporary paid database (smallest plan, billed by the hour, price shown in the console first) and needs Jaime's "yes" in chat (N07):
+1. Automatic backups are point-in-time: restore the latest restorable time of `<project>-staging-db` (or `-prod-db`). For a manual snapshot instead, list them with `aws lightsail get-relational-database-snapshots --region eu-west-2`.
+2. `aws lightsail create-relational-database-from-snapshot --region eu-west-2 --relational-database-name <project>-restore-test --source-relational-database-name <project>-staging-db --use-latest-restorable-time --relational-database-bundle-id <smallest bundle> --no-publicly-accessible --tags key=project,value=<project> key=env,value=restore-test` (manual snapshot: `--relational-database-snapshot-name <snapshot>` instead of the two source options). Flags taken from the Lightsail CLI reference; confirm with `aws lightsail create-relational-database-from-snapshot help` on the day.
+3. Wait until it is `available` (about 10 to 20 minutes). Note the time from start to available: that is the measured recovery time.
+4. In the staging secret (`<project>/staging` in Secrets Manager), temporarily set `DATABASE_URL` to the restored endpoint (same master user and password as the source; `?sslmode=require`) AND `INTEGRATIONS_MODE=fake`, so the worker does not re-send outbox rows that were pending at snapshot time. Re-run the last `deploy-staging` job in GitHub Actions (main only accepts changes through a pull request).
+5. Check: `infra/smoke.sh <STAGING_URL>` green; sign in as the owner (2FA) and open the latest orders; `SELECT count(*)` of `Order`, `User`, `AuditLog` match the source within the snapshot time.
+6. Put the original `DATABASE_URL` and `INTEGRATIONS_MODE` back in the secret and redeploy; smoke green again.
+7. Delete `<project>-restore-test` (Jaime, console; deletion is denied to the deploy role).
+8. Record in `docs/LOGBOOK.md`: date, snapshot name and time, measured recovery time, counts compared, result, who ran it. Until a row exists, SECURITY.md keeps "restore test" as an accepted open item.
 ## Outbox dead letters
 The worker logs `"event":"outbox_dead_letter"` (error level) when an event fails 8 times. Find them with `SELECT id, type, "lastError" FROM "Outbox" WHERE "deadLetteredAt" IS NOT NULL;`, fix the cause, then replay as described in `packages/db/prisma/migrations/20261021120200_outbox_dead_letter/ROLLBACK.md`.
+## Rolling out 0.7.5 (operations 2FA)
+From 0.7.5, with `REQUIRE_PRIVILEGED_2FA=true`, operations users without 2FA get 403 `MFA_ENROLLMENT_REQUIRED` on every route except enrollment. Before deploying it: list them (`SELECT email FROM "User" WHERE role = 'operations' AND "totpEnabledAt" IS NULL;`), ask them to enroll on the current version (enrollment is already available to operations), and deploy when the list is empty or the remaining users are told they will be asked at their next request.
+## Alerts (worker, every 60 s)
+**Rules** (counted from the database):
+- `mfa_failed_spike`: at least `MFA_FAILED_ALERT_THRESHOLD` (default 10) failed second-factor attempts in the last 15 minutes, all users together.
+- `outbox_dead_letter`: any outbox event dead-lettered since the last delivered alert (so none are lost while the rule is cooling down).
+
+**Delivery:**
+- A JSON POST to `ALERT_WEBHOOK_URL`, plus an error log line `"event":"alert_fired"`.
+- Format: a Slack incoming webhook works as is (it reads `text`). Discord and Teams need a relay that reshapes the JSON.
+- `ALERT_WEBHOOK_URL` must be https and is required when `INTEGRATIONS_MODE=live`. It is a credential: keep it in the environment's secret in AWS Secrets Manager.
+- Each rule fires at most once an hour per worker process, counted from a successful delivery. A failed delivery is retried every minute. A worker restart resets the hour.
+
+**Testing** (after every change to the webhook): in staging, dead-letter a test event or lower the threshold for a moment, and confirm the message arrives. `alert_delivery_failed` in the log means the webhook is wrong or down.
+
+**Response:**
+- `mfa_failed_spike`: run `SELECT "entityId", after->>'ip' AS ip, count(*) FROM "AuditLog" WHERE action = 'mfa_failed' AND "createdAt" > now() - interval '15 minutes' GROUP BY 1, 2 ORDER BY 3 DESC;`.
+  - One user from many IPs: the password has probably leaked. Reset the password and revoke the sessions.
+  - Many users from one IP: credential stuffing. The per-user limits already hold; consider blocking the IP at the edge.
+- `outbox_dead_letter`: see "Outbox dead letters" above.
 ## Incidents
 1. Declare in LOGBOOK with time. 2. Check /api/health, container logs (`aws lightsail get-container-log`). 3. Rollback if a deploy caused it. 4. Notify client with the template in docs/handover. 5. Postmortem within 48 h.
 ## Monthly
-Dependabot PRs, review the deploy roles' OIDC trust policies (repository and environment conditions) and who can assume them; there are no long-lived IAM keys to rotate, review costs, review docs/learnings.md.
+- Snapshots: every production deploy keeps one manual snapshot (`<project>-prod-db-pre-*`). Keep the last 5 and those of the last 90 days; Jaime deletes older ones in the console (the deploy role cannot delete).
+- Dependabot PRs, review the deploy roles' OIDC trust policies (repository and environment conditions) and who can assume them; there are no long-lived IAM keys to rotate, review costs, review docs/learnings.md.
 
 ## Worker environment
 The `worker` container validates the same environment as the API (`DATABASE_URL`, `SESSION_SECRET`, `APP_URL`, `OPS_EMAIL`, `INTEGRATIONS_MODE`). `infra/deploy.sh` copies the `app` container's variables into `worker` on every deployment (the app's value wins); if you set variables by hand in the Lightsail console, set them on BOTH containers, and they are aligned on the next deploy anyway. Both containers log one `"event":"startup"` line with `version` and `integrationsMode`: they must match.

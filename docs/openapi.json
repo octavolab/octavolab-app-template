@@ -81,7 +81,7 @@
           "auth",
           "2fa"
         ],
-        "description": "409 MFA_REQUIRED for owners and admins while REQUIRE_PRIVILEGED_2FA=true. Revokes the user's other sessions.",
+        "description": "409 MFA_REQUIRED for owner, admin and operations while REQUIRE_PRIVILEGED_2FA=true. Revokes the user's other sessions.",
         "requestBody": {
           "required": true,
           "content": {

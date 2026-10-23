@@ -13,6 +13,7 @@
 #  4. The script succeeds only when the NEW deployment version is ACTIVE; FAILED/INACTIVE/timeout prints each container's
 #     log tail and exits 1. The previous deployment keeps serving in that case.
 #  5. Nothing that contains environment values is ever printed (create-deployment's response is queried for its version only).
+#  6. Production only: a database snapshot is taken and confirmed "available" before the deployment is created (ADR 0005).
 set -euo pipefail
 ENV="${1:?staging|prod}"
 case "$ENV" in staging|prod) ;; *) echo "usage: infra/deploy.sh staging|prod" >&2; exit 2 ;; esac
@@ -99,6 +100,27 @@ else
   echo "Secrets: cannot read $SECRET_ID; deploy stopped:" >&2; sed 's/arn:[^ ]*/<arn>/g' "$WORK/secrets.err" | head -3 >&2; exit 1
 fi
 python3 infra/deploy_env.py "$WORK/template.json" "$WORK/active.json" "$WORK/secrets.json" "$WORK/deployment.json"
+
+# Production: snapshot of the database before the new version starts (its migrations run at container start, ADR 0005).
+# Taken after the image push and the secret merge, so a failed build or a missing secret leaves no snapshot behind, and
+# confirmed "available" before the deployment is created. Fails closed: no confirmed snapshot, no deploy. The deploy role
+# may snapshot only databases tagged project and env.
+if [ "$ENV" = "prod" ]; then
+  DB="${LIGHTSAIL_DB:-$SERVICE-db}"
+  SNAP="$DB-pre-$SHA-$(date -u +%Y%m%d%H%M)"
+  "${LS[@]}" create-relational-database-snapshot --relational-database-name "$DB" --relational-database-snapshot-name "$SNAP" > /dev/null
+  SNAP_STATE="unknown"
+  for _ in $(seq 1 90); do
+    SNAP_STATE="$("${LS[@]}" get-relational-database-snapshot --relational-database-snapshot-name "$SNAP" --query relationalDatabaseSnapshot.state --output text 2>/dev/null || echo pending)"
+    [ "$SNAP_STATE" = "available" ] && break; echo "  snapshot $SNAP: $SNAP_STATE"; sleep 10
+  done
+  if [ "$SNAP_STATE" != "available" ]; then
+    echo "Snapshot $SNAP not available in time (state: $SNAP_STATE); deploy stopped. Last answer from AWS:" >&2
+    "${LS[@]}" get-relational-database-snapshot --relational-database-snapshot-name "$SNAP" --query relationalDatabaseSnapshot.state --output text 2>&1 | sed 's/arn:[^ ]*/<arn>/g' | head -3 >&2 || true
+    exit 1
+  fi
+  echo "Snapshot available: $SNAP"
+fi
 
 # Optimistic lock: nothing may have been deployed or edited since we read the active environment.
 check_lock
