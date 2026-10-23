@@ -23,7 +23,7 @@ jobs:
       OPS_EMAIL: ops@ci.invalid
       INTEGRATIONS_MODE: fake
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { fetch-depth: 0 }
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -54,7 +54,7 @@ jobs:
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { fetch-depth: 0 }
       # gitleaks-action requires a paid GITLEAKS_LICENSE for organisation repos; the CLI in its official image does not.
       - name: gitleaks (CLI, full history)
@@ -86,7 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     container: { image: "semgrep/semgrep@sha256:3db5c7af55eb1f512eac0abf0ab69a97b52c74b5e9a27314c221aee1a78d7ab2" } # latest as of 2026-10-22
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: semgrep scan --config p/owasp-top-ten --error
   deploy-staging:
     # One staging deploy at a time; a newer push waits for the running one instead of colliding with it.
@@ -98,7 +98,7 @@ jobs:
     environment: staging
     permissions: { contents: read, id-token: write }
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with: { role-to-assume: "${{ secrets.AWS_ROLE_STAGING }}", aws-region: eu-west-2 }
       - name: lightsailctl plugin
@@ -116,7 +116,7 @@ jobs:
     environment: production
     permissions: { contents: read, id-token: write }
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with: { role-to-assume: "${{ secrets.AWS_ROLE_PROD }}", aws-region: eu-west-2 }
       - name: lightsailctl plugin
