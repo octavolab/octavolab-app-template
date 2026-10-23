@@ -1,6 +1,35 @@
 # Changelog
 All notable changes to this project are documented here (Keep a Changelog, semver).
 
+## [Unreleased] - staging deployment hardening
+
+### Security
+- `infra/deploy.sh` no longer prints the `create-container-service-deployment` response, which contained every container's
+  environment (secrets). Past CI logs of staging deploys may contain secrets (see `docs/secrets.md`).
+- Owner bootstrap through `BOOTSTRAP_OWNER_EMAIL`/`BOOTSTRAP_OWNER_PASSWORD` removed (the password stayed in the Lightsail
+  deployment history). Replaced by the `create-owner` CLI: password from a hidden prompt or stdin only, never arguments or
+  env; never modifies an existing user (exit 3). Any `BOOTSTRAP_*` variable makes the API refuse to boot in production (unit; CI image boot).
+- Production refuses weak secrets at boot: `SESSION_SECRET` (length, placeholders, repeated pattern, distinct characters,
+  entropy), `TOTP_ENC_KEY` (non-random bytes), `DATABASE_URL` (short or placeholder password, localhost). Messages never
+  contain values (unit; CI image boot).
+- Threat model `docs/secrets.md`; rotation runbook (EN/ES), including why `TOTP_ENC_KEY` must not be rotated naively.
+  ADR 0006 (proposed): ECS Fargate + Secrets Manager.
+
+### Changed
+- `INTEGRATIONS_MODE` is `fake | test | live`, case-insensitive, normalized by one shared function for the API, worker and
+  integrations package; `sandbox` is accepted as the old name of `test`; invalid values fail fast. `test` and `live` require
+  `PAYMENTS_PROVIDER=stripe` with a matching Stripe key and webhook secret, and `MESSAGING_PROVIDER=resend` with its key
+  and sender (unit). API and worker log one `"event":"startup"` line with version and mode. Staging stays `fake`.
+- Version: the git SHA is baked into the image (`--build-arg GIT_SHA` -> `/app/VERSION`); `/api/health` `version` no longer
+  comes from the `APP_VERSION` env var, which went stale (health `5cae0a9` vs env `9553b0e`). `APP_VERSION` is removed on deploy.
+- `infra/deploy.sh`: aborts if a deployment is in progress or the active deployment changes during the run (no silent
+  overwrite of console edits); builds the environment from the ACTIVE deployment (`infra/deploy_env.py`, unit-tested in
+  CI) and prints added/removed/changed key names only; the worker always receives the app's values; refuses a dirty
+  working tree; waits for the NEW deployment version to be ACTIVE and prints container log tails on failure.
+- `infra/smoke.sh` always asserts `version` == deployed git SHA (default `git rev-parse --short=7 HEAD`) and parses JSON.
+- CI: image built with the SHA; the image boot step asserts version and mode, runs `create-owner` as a one-shot container
+  (and again: exit 3), and proves a weak secret and a `BOOTSTRAP_*` variable stop the server.
+
 ## [0.7.4] - 2026-10-22
 
 ### Security
@@ -23,7 +52,7 @@ All notable changes to this project are documented here (Keep a Changelog, semve
 - The E2E comment uses the new variable name.
 - ASVS 6.4.1 Met for staging: the secret exists and every deploy merges it (CI notice, run 39786567499).
 - Staging secret seeded automatically (once) from the active Lightsail environment when the deploy role has `ProjectSecrets` (`GetSecretValue`, `DescribeSecret`, `CreateSecret`, `TagResource` on `<PROJECT_NAME>/*` only); values never printed; never in production.
-- `deploy.sh` reads secrets fail-closed: production stops on any Secrets Manager error; outside production only a missing secret or a role without `ReadProjectSecrets` falls back, with a CI warning.
+- `deploy.sh` reads secrets fail-closed: production stops on any Secrets Manager error; outside production only a missing secret or a role without `ProjectSecrets` falls back, with a CI warning.
 - ASVS L2 checklist signed by Jaime Blum (CTO) on 2026-10-22, with the open items accepted before production listed in `SECURITY.md`.
 - Deploys: one staging deploy at a time (`concurrency`), `deploy.sh` waits while Lightsail is deploying and until the new deployment is RUNNING, and the smoke test checks the deployed version. A real run (39776447566) failed because two pushes deployed at once. The smoke checks also failed open (`grep && echo` under `set -e`); they now exit 1.
 - First-access bootstrap: with `BOOTSTRAP_OWNER_EMAIL` and `BOOTSTRAP_OWNER_PASSWORD` set, the API creates the demo tenant, demo products and the first owner at start; idempotent, never overwrites a user, never logs the password (unit). Runbook: "First access".

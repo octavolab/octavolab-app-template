@@ -1,7 +1,8 @@
+// The env schema first: a misconfigured worker lists every invalid variable and exits before anything else runs.
+import { APP_VERSION, env } from "../config/env.js";
 import { prisma } from "@octavolab/db";
 import { pino } from "pino";
 import { getMessaging, type MessagingProvider } from "@octavolab/integrations";
-import { env } from "../config/env.js";
 
 /**
  * Outbox dispatcher: at-least-once delivery. Rows are claimed with FOR UPDATE SKIP LOCKED plus a 60 s lease so two
@@ -73,6 +74,8 @@ export async function dispatchOnce(deps: WorkerDeps = defaultDeps()) {
 
 if (/outbox\.worker\.(js|ts)$/.test(process.argv[1] ?? "")) {
   const deps = defaultDeps();
+  // Same startup line as the API: both containers must report the same version and integrations mode.
+  deps.log.info({ event: "startup", service: "worker", version: APP_VERSION, integrationsMode: env.INTEGRATIONS_MODE, nodeEnv: env.NODE_ENV }, "worker started");
   const loop = async () => { await dispatchOnce(deps).catch((e) => deps.log.error({ event: "outbox_loop_error", error: String(e) }, "outbox loop error")); setTimeout(loop, 2000); };
   void loop();
 }

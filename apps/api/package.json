@@ -11,7 +11,9 @@
     "test": "vitest run --coverage",
     "test:int": "vitest run test/integration --coverage.enabled=false",
     "dev:worker": "tsx watch --env-file=../../.env --conditions=development src/workers/outbox.worker.ts",
-    "worker": "node dist/workers/outbox.worker.js"
+    "worker": "node dist/workers/outbox.worker.js",
+    "create-owner": "node dist/cli/create-owner.js",
+    "create-owner:dev": "tsx --env-file=../../.env --conditions=development src/cli/create-owner.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^10.0.1",

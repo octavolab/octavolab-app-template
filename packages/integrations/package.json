@@ -20,6 +20,11 @@
       "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./mode": {
+      "development": "./src/mode.ts",
+      "types": "./dist/mode.d.ts",
+      "default": "./dist/mode.js"
     }
   }
 }
