@@ -26,6 +26,7 @@ All notable changes to this project are documented here (Keep a Changelog, semve
   overwrite of console edits); builds the environment from the ACTIVE deployment (`infra/deploy_env.py`, unit-tested in
   CI) and prints added/removed/changed key names only; the worker always receives the app's values; refuses a dirty
   working tree; waits for the NEW deployment version to be ACTIVE and prints container log tails on failure.
+- `infra/smoke.sh` waits up to `SMOKE_WAIT_SECONDS` (default 180) for the new SHA: on 23 Oct 2026 Lightsail reported the deployment ACTIVE while `/api/health` still answered the previous SHA (run 39944893279); the HSTS check no longer uses `grep -q` under `pipefail`.
 - `infra/smoke.sh` always asserts `version` == deployed git SHA (default `git rev-parse --short=7 HEAD`) and parses JSON.
 - CI: image built with the SHA; the image boot step asserts version and mode, runs `create-owner` as a one-shot container
   (and again: exit 3), and proves a weak secret and a `BOOTSTRAP_*` variable stop the server.
