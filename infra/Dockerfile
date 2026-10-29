@@ -1,5 +1,5 @@
 # Multi-stage build: web static files are served by the API container.
-FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS base
+FROM node:25-alpine@sha256:bdf2cca6fe3dabd014ea60163eca3f0f7015fbd5c7ee1b0e9ccb4ced6eb02ef4 AS base
 # Base image pinned by digest (node:22-alpine as of 2026-10-22); Dependabot (docker) proposes updates after its 7-day cooldown.
 # openssl: Prisma detects the musl/OpenSSL 3 engine from it (without it, generate and migrate pick the wrong engine).
 RUN apk add --no-cache openssl
@@ -18,7 +18,7 @@ RUN rm -rf node_modules apps/*/node_modules packages/*/node_modules \
  && CI=true pnpm install --prod --frozen-lockfile --offline \
  && pnpm --filter @octavolab/db generate
 
-FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS runtime
+FROM node:25-alpine@sha256:bdf2cca6fe3dabd014ea60163eca3f0f7015fbd5c7ee1b0e9ccb4ced6eb02ef4 AS runtime
 # No corepack and no pnpm at runtime: nothing is downloaded when the container starts.
 # The base image bundles npm, npx and corepack; the app never uses them at runtime and npm's own
 # dependencies carry HIGH advisories (trivy, first real run), so they are removed from the runtime image.
